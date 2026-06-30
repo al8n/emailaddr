@@ -107,6 +107,18 @@ where
   }
 }
 
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<S: ?Sized, P> zeroize::Zeroize for EmailAddr<S, P>
+where
+  S: zeroize::Zeroize,
+{
+  #[inline]
+  fn zeroize(&mut self) {
+    zeroize::Zeroize::zeroize(&mut self.storage);
+  }
+}
+
 impl<S: ?Sized, P> EmailAddr<S, P> {
   /// Returns a reference to the inner storage.
   #[cfg_attr(not(coverage), inline(always))]

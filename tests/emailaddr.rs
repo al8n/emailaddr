@@ -515,6 +515,38 @@ fn supports_storage_backends() {
   assert_eq!(bytes.as_bytes(), stack.as_bytes());
 }
 
+#[cfg(feature = "zeroize")]
+#[test]
+fn supports_zeroize_for_stack_storage() {
+  fn assert_zeroize<T: ?Sized + zeroize::Zeroize>() {}
+
+  assert_zeroize::<Buffer>();
+  assert_zeroize::<EmailAddr<Buffer>>();
+  assert_zeroize::<EmailAddr<[u8]>>();
+  assert_zeroize::<LocalPart<[u8]>>();
+  assert_zeroize::<DomainPart<[u8]>>();
+
+  let mut addr: EmailAddr<Buffer> = EmailAddr::try_from("user@example.com").unwrap();
+  assert_eq!(addr.as_bytes(), b"user@example.com");
+
+  zeroize::Zeroize::zeroize(&mut addr);
+  assert_eq!(addr.as_inner().as_bytes(), b"");
+}
+
+#[cfg(all(feature = "zeroize", any(feature = "alloc", feature = "std")))]
+#[test]
+fn supports_zeroize_for_owned_storage() {
+  fn assert_zeroize<T: ?Sized + zeroize::Zeroize>() {}
+
+  assert_zeroize::<EmailAddr<String>>();
+
+  let mut addr: EmailAddr<String> = "user@example.com".parse().unwrap();
+  assert_eq!(addr.as_str(), "user@example.com");
+
+  zeroize::Zeroize::zeroize(&mut addr);
+  assert!(addr.as_inner().is_empty());
+}
+
 #[cfg(any(
   feature = "bytes_1",
   feature = "smallvec_1",

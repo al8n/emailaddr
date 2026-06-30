@@ -155,14 +155,25 @@ let no_literals = Options::new()
     .with_domain(DomainOptions::new().without_domain_literals());
 assert!(EmailAddr::<Buffer, Relax>::parse_with_options("user@[127.0.0.1]", no_literals).is_err());
 
-let raw_utf8_domain = Options::new()
+let raw_domain = Options::new()
     .with_domain(DomainOptions::new().with_unicode(DomainUnicodePolicy::NonStandardUtf8));
-let addr = EmailAddr::<Buffer, Relax>::parse_with_options("👋@💌.kz", raw_utf8_domain).unwrap();
+let addr = EmailAddr::<Buffer, Relax>::parse_with_options("👋@💌.kz", raw_domain).unwrap();
 assert_eq!(addr.as_str(), "👋@💌.kz");
 ```
 
 `DomainUnicodePolicy::NonStandardUtf8` preserves raw UTF-8 DNS labels as
 application data. It is not SMTP/DNS-compatible IDNA normalization.
+The `DomainUnicodePolicy::as_str()` values, CLI values, and human-readable
+serde values for this policy are `ascii`, `idna`, and `raw`.
+Human-readable serde formats such as JSON, YAML, and TOML serialize option
+enums with those same string values, so configuration files can use fields like:
+
+```toml
+[domain]
+unicode = "raw"
+literals = "forbid"
+minimum_dns_labels = 2
+```
 
 ## Feature Flags
 
@@ -170,7 +181,8 @@ application data. It is not SMTP/DNS-compatible IDNA normalization.
 |---------|-------------|
 | `std` (default) | Standard library support and IDNA domain normalization |
 | `alloc` | Allocation support without `std`, including IDNA domain normalization |
-| `serde` | `serde_core`-backed string serialization/deserialization; combine with `alloc` or `std` for IDNA-validated A-label deserialization |
+| `serde` | `serde_core`-backed serialization/deserialization for addresses, parts, and parsing options; combine with `alloc` or `std` for IDNA-validated A-label deserialization |
+| `clap` | `clap::Args` / `ValueEnum` support for parsing options; CLI flags only, no environment-variable wiring |
 | `bytes` / `bytes_1` | `bytes::Bytes` storage support |
 | `smallvec` / `smallvec_1` | `smallvec::SmallVec` byte storage support |
 | `smol_str` / `smol_str_0_3` | `smol_str::SmolStr` storage support |

@@ -509,6 +509,24 @@ macro_rules! impl_str_storage {
 macro_rules! impl_byte_storage {
   ($($ty:ty), +$(,)?) => {
     $(
+      impl core::str::FromStr for EmailAddr<$ty> {
+        type Err = ParseEmailAddrError;
+
+        #[inline]
+        fn from_str(input: &str) -> Result<Self, Self::Err> {
+          Self::try_from(input)
+        }
+      }
+
+      impl<'a> TryFrom<&'a str> for EmailAddr<$ty> {
+        type Error = ParseEmailAddrError;
+
+        #[inline]
+        fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+          Self::try_from(input.as_bytes())
+        }
+      }
+
       impl<'a> TryFrom<&'a [u8]> for EmailAddr<$ty> {
         type Error = ParseEmailAddrError;
 
@@ -759,6 +777,19 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<Cow<'a, [u8]>> {
   fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_bytes(input)? {
       Either::Left(addr) => Ok(Self(Cow::Borrowed(addr.0))),
+      Either::Right(buf) => Ok(Self(Cow::Owned(buf.into()))),
+    }
+  }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl<'a> TryFrom<&'a str> for EmailAddr<Cow<'a, [u8]>> {
+  type Error = ParseEmailAddrError;
+
+  #[inline]
+  fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+    match EmailAddr::try_from_str(input)? {
+      Either::Left(addr) => Ok(Self(Cow::Borrowed(addr.0.as_bytes()))),
       Either::Right(buf) => Ok(Self(Cow::Owned(buf.into()))),
     }
   }

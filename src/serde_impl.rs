@@ -4,8 +4,8 @@ use core::{fmt, marker::PhantomData, str};
 use std::{borrow::Cow, boxed::Box, rc::Rc, string::String, sync::Arc, vec::Vec};
 
 use serde_core::{
-  de::{self, Visitor},
   Deserialize, Deserializer, Serialize, Serializer,
+  de::{self, Visitor},
 };
 
 use crate::{Buffer, DomainPart, EmailAddr, LocalPart};

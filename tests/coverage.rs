@@ -1,11 +1,11 @@
 use core::borrow::Borrow;
 
 use emailaddr::{
-  verify_ascii_dns_domain, verify_ascii_domain_part, verify_ascii_email_addr,
-  verify_ascii_local_part, verify_email_addr_with_options, verify_local_part, Buffer,
-  DomainLiteralPolicy, DomainOptions, DomainPart, DomainUnicodePolicy, EmailAddr, Limits,
-  LocalOptions, LocalPart, Options, Relax, SmtpUtf8Policy, DEFAULT_MAX_LOCAL_PART_LENGTH,
-  DEFAULT_MINIMUM_DNS_LABELS,
+  Buffer, DEFAULT_MAX_LOCAL_PART_LENGTH, DEFAULT_MINIMUM_DNS_LABELS, DomainLiteralPolicy,
+  DomainOptions, DomainPart, DomainUnicodePolicy, EmailAddr, Limits, LocalOptions, LocalPart,
+  Options, Relax, SmtpUtf8Policy, verify_ascii_dns_domain, verify_ascii_domain_part,
+  verify_ascii_email_addr, verify_ascii_local_part, verify_email_addr_with_options,
+  verify_local_part,
 };
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -784,48 +784,70 @@ fn covers_quickcheck_generators() {
   assert!(generated::<EmailAddr<String>>().as_str().contains('@'));
   assert!(generated::<EmailAddr<Vec<u8>>>().as_bytes().contains(&b'@'));
   assert!(generated::<EmailAddr<Box<str>>>().as_str().contains('@'));
-  assert!(generated::<EmailAddr<Box<[u8]>>>()
-    .as_bytes()
-    .contains(&b'@'));
+  assert!(
+    generated::<EmailAddr<Box<[u8]>>>()
+      .as_bytes()
+      .contains(&b'@')
+  );
   assert!(generated::<EmailAddr<Rc<str>>>().as_str().contains('@'));
-  assert!(generated::<EmailAddr<Rc<[u8]>>>()
-    .as_bytes()
-    .contains(&b'@'));
+  assert!(
+    generated::<EmailAddr<Rc<[u8]>>>()
+      .as_bytes()
+      .contains(&b'@')
+  );
   assert!(generated::<EmailAddr<Arc<str>>>().as_str().contains('@'));
-  assert!(generated::<EmailAddr<Arc<[u8]>>>()
-    .as_bytes()
-    .contains(&b'@'));
-  assert!(generated::<EmailAddr<Cow<'static, str>>>()
-    .as_str()
-    .contains('@'));
-  assert!(generated::<EmailAddr<Cow<'static, [u8]>>>()
-    .as_bytes()
-    .contains(&b'@'));
+  assert!(
+    generated::<EmailAddr<Arc<[u8]>>>()
+      .as_bytes()
+      .contains(&b'@')
+  );
+  assert!(
+    generated::<EmailAddr<Cow<'static, str>>>()
+      .as_str()
+      .contains('@')
+  );
+  assert!(
+    generated::<EmailAddr<Cow<'static, [u8]>>>()
+      .as_bytes()
+      .contains(&b'@')
+  );
 
   #[cfg(feature = "bytes_1")]
-  assert!(generated::<EmailAddr<bytes_1::Bytes>>()
-    .as_bytes()
-    .contains(&b'@'));
+  assert!(
+    generated::<EmailAddr<bytes_1::Bytes>>()
+      .as_bytes()
+      .contains(&b'@')
+  );
   #[cfg(feature = "tinyvec_1")]
-  assert!(generated::<EmailAddr<tinyvec_1::TinyVec<[u8; 32]>>>()
-    .as_bytes()
-    .contains(&b'@'));
+  assert!(
+    generated::<EmailAddr<tinyvec_1::TinyVec<[u8; 32]>>>()
+      .as_bytes()
+      .contains(&b'@')
+  );
   #[cfg(feature = "smallvec_1")]
-  assert!(generated::<EmailAddr<smallvec_1::SmallVec<[u8; 32]>>>()
-    .as_bytes()
-    .contains(&b'@'));
+  assert!(
+    generated::<EmailAddr<smallvec_1::SmallVec<[u8; 32]>>>()
+      .as_bytes()
+      .contains(&b'@')
+  );
   #[cfg(feature = "smol_str_0_3")]
-  assert!(generated::<EmailAddr<smol_str_0_3::SmolStr>>()
-    .as_str()
-    .contains('@'));
+  assert!(
+    generated::<EmailAddr<smol_str_0_3::SmolStr>>()
+      .as_str()
+      .contains('@')
+  );
   #[cfg(feature = "triomphe_0_1")]
   {
-    assert!(generated::<EmailAddr<triomphe_0_1::Arc<str>>>()
-      .as_str()
-      .contains('@'));
-    assert!(generated::<EmailAddr<triomphe_0_1::Arc<[u8]>>>()
-      .as_bytes()
-      .contains(&b'@'));
+    assert!(
+      generated::<EmailAddr<triomphe_0_1::Arc<str>>>()
+        .as_str()
+        .contains('@')
+    );
+    assert!(
+      generated::<EmailAddr<triomphe_0_1::Arc<[u8]>>>()
+        .as_bytes()
+        .contains(&b'@')
+    );
   }
 }
 
@@ -835,13 +857,12 @@ mod serde_coverage {
 
   use emailaddr::{Buffer, DomainPart, EmailAddr, LocalPart};
   use serde_core::{
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{
-      self,
+      self, Unexpected, Visitor,
       value::{Error as DeError, StrDeserializer},
-      Unexpected, Visitor,
     },
     ser::{Error as SerErrorTrait, Impossible},
-    Deserialize, Deserializer, Serialize, Serializer,
   };
 
   #[cfg(any(feature = "alloc", feature = "std"))]
@@ -1181,10 +1202,12 @@ mod serde_coverage {
 
     let stack: EmailAddr<Buffer> = from_str("user@example.com");
     assert_eq!(stack.as_str(), "user@example.com");
-    assert!(EmailAddr::<Buffer>::deserialize(ExpectingDeserializer)
-      .unwrap_err()
-      .to_string()
-      .contains("a valid email address string"));
+    assert!(
+      EmailAddr::<Buffer>::deserialize(ExpectingDeserializer)
+        .unwrap_err()
+        .to_string()
+        .contains("a valid email address string")
+    );
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {

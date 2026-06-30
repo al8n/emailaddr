@@ -1,11 +1,13 @@
 [package]
 name = "emailaddr"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2024"
 repository = "https://github.com/al8n/emailaddr"
 homepage = "https://github.com/al8n/emailaddr"
 documentation = "https://docs.rs/emailaddr"
-description = "Type-safe, validated email addresses with generic storage, IDNA domain support, and no_std/no-alloc compatibility."
+description = "Type-safe, zero-copy, validated email addresses with generic storage, IDNA domain support, and no_std/no-alloc compatibility."
+categories = ["email", "internationalization", "no-std", "no-std::no-alloc", "parser-implementations"]
+keywords = ["email", "email-address", "validation", "emailaddress", "idna"]
 license = "MIT OR Apache-2.0"
 rust-version = "1.86"
 
@@ -43,7 +45,7 @@ bytes_1 = { package = "bytes", version = "1", default-features = false, optional
 clap = { version = "4", default-features = false, features = ["derive", "std"], optional = true }
 quickcheck = { version = "1", default-features = false, optional = true }
 smallvec_1 = { package = "smallvec", version = "1", default-features = false, optional = true }
-smol_str_0_3 = { package = "smol_str", version = "=0.3.2", default-features = false, optional = true }
+smol_str_0_3 = { package = "smol_str", version = "0.3", default-features = false, optional = true }
 tinyvec_1 = { package = "tinyvec", version = "1", default-features = false, features = ["rustc_1_61"], optional = true }
 triomphe_0_1 = { package = "triomphe", version = "0.1", default-features = false, optional = true }
 
@@ -67,7 +69,10 @@ rpath = false
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
-[lints.rust]
+[lints]
+workspace = true
+
+[workspace.lints.rust]
 rust_2018_idioms = "warn"
 single_use_lifetimes = "warn"
 unexpected_cfgs = { level = "warn", check-cfg = [

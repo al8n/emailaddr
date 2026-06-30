@@ -18,14 +18,23 @@ pub use options::*;
 
 mod addr;
 #[cfg(all(feature = "arbitrary", any(feature = "alloc", feature = "std")))]
+#[cfg_attr(
+  docsrs,
+  doc(cfg(all(feature = "arbitrary", any(feature = "alloc", feature = "std"))))
+)]
 mod arbitrary_impl;
 mod buffer;
 mod domain;
 mod local;
 mod options;
 #[cfg(all(feature = "quickcheck", any(feature = "alloc", feature = "std")))]
+#[cfg_attr(
+  docsrs,
+  doc(cfg(all(feature = "quickcheck", any(feature = "alloc", feature = "std"))))
+)]
 mod quickcheck_impl;
 #[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 pub use serde_impl::EmailAddrSerdeStorage;
 #[cfg(feature = "serde")]
 mod serde_impl;

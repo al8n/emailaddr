@@ -21,11 +21,12 @@ Type-safe, validated email addresses for Rust.
 ## Overview
 
 `emailaddr` provides validated email address types with a storage model similar
-to `emailaddr`:
+to `hostaddr`:
 
-- `EmailAddr<S>` stores a validated full address using caller-chosen storage.
-- `LocalPart<S>` validates dot-atom and quoted-string local-parts.
-- `DomainPart<S>` validates RFC 5321 domain-parts and bracketed address
+- `EmailAddr<S = str>` stores a validated full address using caller-chosen
+  storage.
+- `LocalPart<S = str>` validates dot-atom and quoted-string local-parts.
+- `DomainPart<S = str>` validates RFC 5321 domain-parts and bracketed address
   literals.
 - `Buffer` stores a full validated address on the stack for `no_std` /
   no-allocation use.
@@ -58,6 +59,25 @@ assert_eq!(idn.as_str(), "user@xn--0zwm56d.xn--fiqs8s");
 
 let smtp_utf8: EmailAddr<String> = "用户@example.com".parse().unwrap();
 assert_eq!(smtp_utf8.local_part().as_inner(), &"用户");
+```
+
+## Borrowed DSTs
+
+```rust,ignore
+use emailaddr::{DomainPart, EmailAddr, LocalPart};
+
+let addr: &EmailAddr<str> = EmailAddr::try_from_ascii_str("user@example.com").unwrap();
+assert_eq!(addr.as_inner(), "user@example.com");
+assert_eq!(addr.local_part_ref().as_inner(), "user");
+assert_eq!(addr.domain_part_ref().as_inner(), "example.com");
+
+let bytes: &EmailAddr<[u8]> = addr.as_bytes_addr();
+assert_eq!(bytes.as_str_addr().as_inner(), "user@example.com");
+
+let local: &LocalPart<str> = LocalPart::try_from_ascii_str("user").unwrap();
+let domain: &DomainPart<str> = DomainPart::try_from_ascii_str("example.com").unwrap();
+assert_eq!(local.as_bytes().as_inner(), b"user");
+assert_eq!(domain.as_bytes().as_inner(), b"example.com");
 ```
 
 ## Storage
@@ -103,6 +123,13 @@ assert!(verify_ascii_email_addr(b"user@example.com.").is_err());
 | `std` (default) | Standard library support and IDNA domain normalization |
 | `alloc` | Allocation support without `std`, including IDNA domain normalization |
 | `serde` | `serde_core`-backed string serialization/deserialization; combine with `alloc` or `std` for IDNA-validated A-label deserialization |
+| `bytes` / `bytes_1` | `bytes::Bytes` storage support |
+| `smallvec` / `smallvec_1` | `smallvec::SmallVec` byte storage support |
+| `smol_str` / `smol_str_0_3` | `smol_str::SmolStr` storage support |
+| `tinyvec` / `tinyvec_1` | `tinyvec::TinyVec` byte storage support |
+| `triomphe` / `triomphe_0_1` | `triomphe::Arc<str>` and `triomphe::Arc<[u8]>` storage support |
+| `arbitrary` | Invariant-preserving `arbitrary::Arbitrary` impls for owned storage backends |
+| `quickcheck` | Invariant-preserving `quickcheck::Arbitrary` impls for owned storage backends |
 
 ## RFC Coverage
 
@@ -134,5 +161,6 @@ Copyright (c) 2026 Al Liu.
 
 [Github-url]: https://github.com/al8n/emailaddr/
 [CI-url]: https://github.com/al8n/emailaddr/actions/workflows/ci.yml
+[codecov-url]: https://codecov.io/gh/al8n/emailaddr
 [doc-url]: https://docs.rs/emailaddr
 [crates-url]: https://crates.io/crates/emailaddr

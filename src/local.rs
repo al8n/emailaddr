@@ -20,9 +20,10 @@ impl ParseLocalPartError {
 /// dot-atom local-parts such as `user.name`, and quoted strings such as
 /// `"user name"`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct LocalPart<S>(pub(crate) S);
+#[repr(transparent)]
+pub struct LocalPart<S: ?Sized = str>(pub(crate) S);
 
-impl<S> core::fmt::Display for LocalPart<S>
+impl<S: ?Sized> core::fmt::Display for LocalPart<S>
 where
   S: AsRef<str>,
 {
@@ -32,10 +33,13 @@ where
   }
 }
 
-impl<S> LocalPart<S> {
+impl<S: ?Sized> LocalPart<S> {
   /// Returns the inner storage.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_inner(self) -> S {
+  pub fn into_inner(self) -> S
+  where
+    S: Sized,
+  {
     self.0
   }
 
@@ -49,6 +53,13 @@ impl<S> LocalPart<S> {
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn as_ref(&self) -> LocalPart<&S> {
     LocalPart(&self.0)
+  }
+
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  const fn ref_cast(input: &S) -> &Self {
+    // SAFETY: LocalPart<S> is #[repr(transparent)] over S, so references to
+    // S and LocalPart<S> have the same layout and metadata, including for DSTs.
+    unsafe { &*(input as *const S as *const Self) }
   }
 }
 
@@ -72,7 +83,14 @@ impl<S> LocalPart<&S> {
   }
 }
 
-impl<S> AsRef<str> for LocalPart<S>
+impl<S: ?Sized> core::borrow::Borrow<S> for LocalPart<S> {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn borrow(&self) -> &S {
+    &self.0
+  }
+}
+
+impl<S: ?Sized> AsRef<str> for LocalPart<S>
 where
   S: AsRef<str>,
 {
@@ -82,7 +100,7 @@ where
   }
 }
 
-impl<S> AsRef<[u8]> for LocalPart<S>
+impl<S: ?Sized> AsRef<[u8]> for LocalPart<S>
 where
   S: AsRef<[u8]>,
 {
@@ -92,24 +110,62 @@ where
   }
 }
 
-impl<'a> LocalPart<&'a str> {
-  /// Validates an email local-part and returns it as borrowed storage.
+impl LocalPart<str> {
+  /// Validates an email local-part and returns it as a borrowed DST.
   ///
   /// This accepts the ASCII local-part syntax from RFC 5321 and the SMTPUTF8
   /// extensions from RFC 6531.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_str(input: &'a str) -> Result<Self, ParseLocalPartError> {
+  pub fn try_from_str(input: &str) -> Result<&Self, ParseLocalPartError> {
     verify_local_part(input.as_bytes())?;
-    Ok(Self(input))
+    Ok(Self::ref_cast(input))
   }
 
-  /// Validates an ASCII local-part and returns it as borrowed storage.
+  /// Validates an ASCII local-part and returns it as a borrowed DST.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_ascii_str(input: &'a str) -> Result<Self, ParseLocalPartError> {
-    verify_ascii_local_part(input.as_bytes())?;
-    Ok(Self(input))
+  pub const fn try_from_ascii_str(input: &str) -> Result<&Self, ParseLocalPartError> {
+    match verify_ascii_local_part(input.as_bytes()) {
+      Ok(()) => Ok(Self::ref_cast(input)),
+      Err(err) => Err(err),
+    }
   }
 
+  /// Converts the local-part to borrowed bytes.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub const fn as_bytes(&self) -> &LocalPart<[u8]> {
+    LocalPart::<[u8]>::ref_cast(self.0.as_bytes())
+  }
+}
+
+impl LocalPart<[u8]> {
+  /// Validates an email local-part and returns it as borrowed bytes.
+  ///
+  /// This accepts the ASCII local-part syntax from RFC 5321 and the SMTPUTF8
+  /// extensions from RFC 6531.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn try_from_bytes(input: &[u8]) -> Result<&Self, ParseLocalPartError> {
+    verify_local_part(input)?;
+    Ok(Self::ref_cast(input))
+  }
+
+  /// Validates an ASCII local-part and returns it as borrowed bytes.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub const fn try_from_ascii_bytes(input: &[u8]) -> Result<&Self, ParseLocalPartError> {
+    match verify_ascii_local_part(input) {
+      Ok(()) => Ok(Self::ref_cast(input)),
+      Err(err) => Err(err),
+    }
+  }
+
+  /// Converts the local-part to a borrowed string.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn as_str(&self) -> &LocalPart<str> {
+    let input = core::str::from_utf8(&self.0).expect("validated local-parts are valid UTF-8");
+    LocalPart::<str>::ref_cast(input)
+  }
+}
+
+impl<'a> LocalPart<&'a str> {
   /// Converts the local-part to borrowed bytes.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn as_bytes(&self) -> LocalPart<&'a [u8]> {
@@ -118,28 +174,31 @@ impl<'a> LocalPart<&'a str> {
 }
 
 impl<'a> LocalPart<&'a [u8]> {
-  /// Validates an email local-part and returns it as borrowed bytes.
-  ///
-  /// This accepts the ASCII local-part syntax from RFC 5321 and the SMTPUTF8
-  /// extensions from RFC 6531.
-  #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_bytes(input: &'a [u8]) -> Result<Self, ParseLocalPartError> {
-    verify_local_part(input)?;
-    Ok(Self(input))
-  }
-
-  /// Validates an ASCII local-part and returns it as borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_ascii_bytes(input: &'a [u8]) -> Result<Self, ParseLocalPartError> {
-    verify_ascii_local_part(input)?;
-    Ok(Self(input))
-  }
-
   /// Converts the local-part to a borrowed string.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn as_str(&self) -> LocalPart<&'a str> {
     let input = core::str::from_utf8(self.0).expect("validated local-parts are valid UTF-8");
     LocalPart(input)
+  }
+}
+
+impl<'a> TryFrom<&'a str> for LocalPart<&'a str> {
+  type Error = ParseLocalPartError;
+
+  #[inline]
+  fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+    LocalPart::<str>::try_from_str(input)?;
+    Ok(Self(input))
+  }
+}
+
+impl<'a> TryFrom<&'a [u8]> for LocalPart<&'a [u8]> {
+  type Error = ParseLocalPartError;
+
+  #[inline]
+  fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
+    LocalPart::<[u8]>::try_from_bytes(input)?;
+    Ok(Self(input))
   }
 }
 

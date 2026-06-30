@@ -299,11 +299,11 @@ jobs:
   #         sudo apt-get update -y
   #         sudo apt-get install -y valgrind
   #     # Uncomment and customize when you have binaries to test:
-  #     # - name: cargo build foo
-  #     #   run: cargo build --bin foo
+  #     # - name: cargo build emailaddr example
+  #     #   run: cargo build --example emailaddr
   #     #   working-directory: integration
-  #     # - name: Run valgrind foo
-  #     #   run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/foo
+  #     # - name: Run valgrind emailaddr example
+  #     #   run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/examples/emailaddr
   #     #   working-directory: integration
 
   coverage:

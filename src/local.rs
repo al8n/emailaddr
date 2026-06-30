@@ -8,7 +8,7 @@ pub struct ParseLocalPartError(pub(crate) ());
 
 impl ParseLocalPartError {
   /// Returns the error message.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_str(&self) -> &'static str {
     "invalid email local-part"
   }
@@ -35,7 +35,7 @@ where
 
 impl<S: ?Sized> LocalPart<S> {
   /// Returns the inner storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn into_inner(self) -> S
   where
     S: Sized,
@@ -44,18 +44,18 @@ impl<S: ?Sized> LocalPart<S> {
   }
 
   /// Returns a reference to the inner storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_inner(&self) -> &S {
     &self.0
   }
 
   /// Converts from `&LocalPart<S>` to `LocalPart<&S>`.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_ref(&self) -> LocalPart<&S> {
     LocalPart(&self.0)
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   const fn ref_cast(input: &S) -> &Self {
     // SAFETY: LocalPart<S> is #[repr(transparent)] over S, so references to
     // S and LocalPart<S> have the same layout and metadata, including for DSTs.
@@ -65,7 +65,7 @@ impl<S: ?Sized> LocalPart<S> {
 
 impl<S> LocalPart<&S> {
   /// Copies the referenced local-part storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn copied(self) -> LocalPart<S>
   where
     S: Copy,
@@ -74,7 +74,7 @@ impl<S> LocalPart<&S> {
   }
 
   /// Clones the referenced local-part storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn cloned(self) -> LocalPart<S>
   where
     S: Clone,
@@ -84,7 +84,7 @@ impl<S> LocalPart<&S> {
 }
 
 impl<S: ?Sized> core::borrow::Borrow<S> for LocalPart<S> {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn borrow(&self) -> &S {
     &self.0
   }
@@ -94,7 +94,7 @@ impl<S: ?Sized> AsRef<str> for LocalPart<S>
 where
   S: AsRef<str>,
 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &str {
     self.0.as_ref()
   }
@@ -104,7 +104,7 @@ impl<S: ?Sized> AsRef<[u8]> for LocalPart<S>
 where
   S: AsRef<[u8]>,
 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &[u8] {
     self.0.as_ref()
   }
@@ -115,14 +115,14 @@ impl LocalPart<str> {
   ///
   /// This accepts the ASCII local-part syntax from RFC 5321 and the SMTPUTF8
   /// extensions from RFC 6531.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn try_from_str(input: &str) -> Result<&Self, ParseLocalPartError> {
     verify_local_part(input.as_bytes())?;
     Ok(Self::ref_cast(input))
   }
 
   /// Validates an ASCII local-part and returns it as a borrowed DST.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn try_from_ascii_str(input: &str) -> Result<&Self, ParseLocalPartError> {
     match verify_ascii_local_part(input.as_bytes()) {
       Ok(()) => Ok(Self::ref_cast(input)),
@@ -131,7 +131,7 @@ impl LocalPart<str> {
   }
 
   /// Converts the local-part to borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes(&self) -> &LocalPart<[u8]> {
     LocalPart::<[u8]>::ref_cast(self.0.as_bytes())
   }
@@ -142,14 +142,14 @@ impl LocalPart<[u8]> {
   ///
   /// This accepts the ASCII local-part syntax from RFC 5321 and the SMTPUTF8
   /// extensions from RFC 6531.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn try_from_bytes(input: &[u8]) -> Result<&Self, ParseLocalPartError> {
     verify_local_part(input)?;
     Ok(Self::ref_cast(input))
   }
 
   /// Validates an ASCII local-part and returns it as borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn try_from_ascii_bytes(input: &[u8]) -> Result<&Self, ParseLocalPartError> {
     match verify_ascii_local_part(input) {
       Ok(()) => Ok(Self::ref_cast(input)),
@@ -158,7 +158,7 @@ impl LocalPart<[u8]> {
   }
 
   /// Converts the local-part to a borrowed string.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str(&self) -> &LocalPart<str> {
     let input = core::str::from_utf8(&self.0).expect("validated local-parts are valid UTF-8");
     LocalPart::<str>::ref_cast(input)
@@ -167,7 +167,7 @@ impl LocalPart<[u8]> {
 
 impl<'a> LocalPart<&'a str> {
   /// Converts the local-part to borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes(&self) -> LocalPart<&'a [u8]> {
     LocalPart(self.0.as_bytes())
   }
@@ -175,7 +175,7 @@ impl<'a> LocalPart<&'a str> {
 
 impl<'a> LocalPart<&'a [u8]> {
   /// Converts the local-part to a borrowed string.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str(&self) -> LocalPart<&'a str> {
     let input = core::str::from_utf8(self.0).expect("validated local-parts are valid UTF-8");
     LocalPart(input)
@@ -203,7 +203,7 @@ impl<'a> TryFrom<&'a [u8]> for LocalPart<&'a [u8]> {
 }
 
 /// Returns `true` if `byte` is valid in an unquoted email atom.
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(coverage), inline(always))]
 pub const fn is_atext(byte: u8) -> bool {
   matches!(
     byte,

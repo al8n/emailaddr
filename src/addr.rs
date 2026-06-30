@@ -42,7 +42,7 @@ pub enum ParseEmailAddrError {
 
 impl ParseEmailAddrError {
   /// Returns the high-level error message.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_str(&self) -> &'static str {
     match self {
       Self::Address => "invalid email address",
@@ -75,13 +75,13 @@ where
 
 impl<S: ?Sized> EmailAddr<S> {
   /// Returns a reference to the inner storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_inner(&self) -> &S {
     &self.0
   }
 
   /// Returns the inner storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn into_inner(self) -> S
   where
     S: Sized,
@@ -90,13 +90,13 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Converts from `&EmailAddr<S>` to `EmailAddr<&S>`.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_ref(&self) -> EmailAddr<&S> {
     EmailAddr(&self.0)
   }
 
   /// Converts from `EmailAddr<S>` to `EmailAddr<&S::Target>`.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_deref(&self) -> EmailAddr<&S::Target>
   where
     S: core::ops::Deref,
@@ -105,7 +105,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the full email address as a string slice.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str(&self) -> &str
   where
     S: AsRef<str>,
@@ -114,7 +114,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the full email address as bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_bytes(&self) -> &[u8]
   where
     S: AsRef<[u8]>,
@@ -123,7 +123,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the validated local-part.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn local_part(&self) -> LocalPart<&str>
   where
     S: AsRef<str>,
@@ -136,7 +136,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the validated domain-part.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn domain_part(&self) -> DomainPart<&str>
   where
     S: AsRef<str>,
@@ -149,7 +149,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the local-part and domain-part as validated borrowed values.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn parts(&self) -> (LocalPart<&str>, DomainPart<&str>)
   where
     S: AsRef<str>,
@@ -158,7 +158,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the validated local-part as a borrowed DST wrapper.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn local_part_ref(&self) -> &LocalPart<str>
   where
     S: AsRef<str>,
@@ -170,7 +170,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the validated domain-part as a borrowed DST wrapper.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn domain_part_ref(&self) -> &DomainPart<str>
   where
     S: AsRef<str>,
@@ -182,7 +182,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns the local-part and domain-part as borrowed DST wrappers.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn parts_ref(&self) -> (&LocalPart<str>, &DomainPart<str>)
   where
     S: AsRef<str>,
@@ -191,7 +191,7 @@ impl<S: ?Sized> EmailAddr<S> {
   }
 
   /// Returns `true` if the domain-part is an address literal.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn is_domain_literal(&self) -> bool
   where
     S: AsRef<[u8]>,
@@ -201,7 +201,7 @@ impl<S: ?Sized> EmailAddr<S> {
     bytes[at + 1..].starts_with(b"[")
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   const fn ref_cast(input: &S) -> &Self {
     // SAFETY: EmailAddr<S> is #[repr(transparent)] over S, so references to
     // S and EmailAddr<S> have the same layout and metadata, including for DSTs.
@@ -210,7 +210,7 @@ impl<S: ?Sized> EmailAddr<S> {
 }
 
 impl<S: ?Sized> core::borrow::Borrow<S> for EmailAddr<S> {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn borrow(&self) -> &S {
     &self.0
   }
@@ -220,7 +220,7 @@ impl<S: ?Sized> AsRef<str> for EmailAddr<S>
 where
   S: AsRef<str>,
 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &str {
     self.0.as_ref()
   }
@@ -230,7 +230,7 @@ impl<S: ?Sized> AsRef<[u8]> for EmailAddr<S>
 where
   S: AsRef<[u8]>,
 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &[u8] {
     self.0.as_ref()
   }
@@ -238,7 +238,7 @@ where
 
 impl<S: ?Sized> EmailAddr<&S> {
   /// Copies the referenced address storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn copied(self) -> EmailAddr<S>
   where
     S: Copy,
@@ -247,7 +247,7 @@ impl<S: ?Sized> EmailAddr<&S> {
   }
 
   /// Clones the referenced address storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn cloned(self) -> EmailAddr<S>
   where
     S: Clone,
@@ -263,14 +263,14 @@ impl EmailAddr<str> {
   /// IDNA-validated when `alloc` or `std` is enabled and rejected otherwise.
   /// Use `TryFrom<&str>` for owned storage when Unicode domain names should be
   /// converted to punycode.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn try_from_ascii_str(input: &str) -> Result<&Self, ParseEmailAddrError> {
     verify_borrowed_ascii_email_addr(input.as_bytes())?;
     Ok(Self::ref_cast(input))
   }
 
   /// Converts the address to borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes_addr(&self) -> &EmailAddr<[u8]> {
     EmailAddr::<[u8]>::ref_cast(self.0.as_bytes())
   }
@@ -278,14 +278,14 @@ impl EmailAddr<str> {
 
 impl EmailAddr<[u8]> {
   /// Validates an ASCII email address and returns it as borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn try_from_ascii_bytes(input: &[u8]) -> Result<&Self, ParseEmailAddrError> {
     verify_borrowed_ascii_email_addr(input)?;
     Ok(Self::ref_cast(input))
   }
 
   /// Converts the address to borrowed string storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str_addr(&self) -> &EmailAddr<str> {
     let input = str::from_utf8(&self.0).expect("validated email addresses are valid UTF-8");
     EmailAddr::<str>::ref_cast(input)
@@ -294,7 +294,7 @@ impl EmailAddr<[u8]> {
 
 impl<'a> EmailAddr<&'a str> {
   /// Converts the address to borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes_addr(&self) -> EmailAddr<&'a [u8]> {
     EmailAddr(self.0.as_bytes())
   }
@@ -302,7 +302,7 @@ impl<'a> EmailAddr<&'a str> {
 
 impl<'a> EmailAddr<&'a [u8]> {
   /// Converts the address to borrowed string storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str_addr(&self) -> EmailAddr<&'a str> {
     let input = str::from_utf8(self.0).expect("validated email addresses are valid UTF-8");
     EmailAddr(input)

@@ -1,4 +1,4 @@
-use core::{fmt, str};
+use core::{fmt, marker::PhantomData, str};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use std::{
@@ -14,16 +14,25 @@ use std::{
 use either::Either;
 
 use crate::{
-  Buffer, DomainPart, LocalPart, ParseDomainPartError, ParseLocalPartError, MAX_LOCAL_PART_LENGTH,
+  Buffer, DomainPart, LocalPart, Options, ParseDomainPartError, ParseLocalPartError,
+  MAX_LOCAL_PART_LENGTH,
 };
 
-use crate::domain::contains_ascii_alabel;
+use crate::{
+  domain::{contains_ascii_alabel, write_domain_part_with_options},
+  local::verify_local_part_with_limit,
+};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::domain::write_normalized_domain_part;
 
 /// The maximum email address length accepted by this crate.
 pub const MAX_EMAIL_ADDR_LENGTH: usize = 254;
+
+/// Output from relaxed parsing that may preserve the original storage or return a stack buffer.
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
+pub type RelaxedParseOutput<S> = Either<EmailAddr<S, Relax>, EmailAddr<Buffer, Relax>>;
 
 /// The provided input is not a syntactically valid email address.
 #[derive(Debug, Clone, Eq, PartialEq, thiserror::Error)]
@@ -54,30 +63,55 @@ impl ParseEmailAddrError {
 
 /// A type-safe, validated email address.
 ///
-/// `EmailAddr<S>` stores the whole email address in the caller-selected storage
-/// type `S`. Borrowed DST storage such as `EmailAddr<str>` and
-/// `EmailAddr<[u8]>` is zero-copy. Owned storage such as `String`, `Arc<str>`,
-/// `Vec<u8>`, or [`Buffer`] is available through `TryFrom` and `FromStr`
-/// implementations.
+/// `EmailAddr<S>` is the strict default form and stores the whole email address
+/// in the caller-selected storage type `S`. Borrowed DST storage such as
+/// `EmailAddr<str>` and `EmailAddr<[u8]>` is zero-copy. Owned storage such as
+/// `String`, `Arc<str>`, `Vec<u8>`, or [`Buffer`] is available through
+/// `TryFrom` and `FromStr` implementations.
+///
+/// `EmailAddr<S, Relax>` is the opt-in relaxed policy form returned by
+/// `parse_with_options`. Strict addresses can be widened into relaxed addresses,
+/// but relaxed addresses must be revalidated before they can become strict.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
-pub struct EmailAddr<S: ?Sized = str>(pub(crate) S);
+pub struct EmailAddr<S: ?Sized = str, P = Strict> {
+  marker: PhantomData<fn() -> P>,
+  pub(crate) storage: S,
+}
 
-impl<S: ?Sized> fmt::Display for EmailAddr<S>
+/// Strict email address policy.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Strict;
+
+/// Relaxed email address policy for custom parsing options.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Relax;
+
+impl<S, P> EmailAddr<S, P> {
+  #[cfg_attr(not(coverage), inline(always))]
+  pub(crate) const fn from_inner(storage: S) -> Self {
+    Self {
+      marker: PhantomData,
+      storage,
+    }
+  }
+}
+
+impl<S: ?Sized, P> fmt::Display for EmailAddr<S, P>
 where
   S: AsRef<str>,
 {
   #[inline]
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.write_str(self.0.as_ref())
+    f.write_str(self.storage.as_ref())
   }
 }
 
-impl<S: ?Sized> EmailAddr<S> {
+impl<S: ?Sized, P> EmailAddr<S, P> {
   /// Returns a reference to the inner storage.
   #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_inner(&self) -> &S {
-    &self.0
+    &self.storage
   }
 
   /// Returns the inner storage.
@@ -86,22 +120,22 @@ impl<S: ?Sized> EmailAddr<S> {
   where
     S: Sized,
   {
-    self.0
+    self.storage
   }
 
-  /// Converts from `&EmailAddr<S>` to `EmailAddr<&S>`.
+  /// Converts from `&EmailAddr<S, P>` to `EmailAddr<&S, P>`.
   #[cfg_attr(not(coverage), inline(always))]
-  pub const fn as_ref(&self) -> EmailAddr<&S> {
-    EmailAddr(&self.0)
+  pub const fn as_ref(&self) -> EmailAddr<&S, P> {
+    EmailAddr::from_inner(&self.storage)
   }
 
-  /// Converts from `EmailAddr<S>` to `EmailAddr<&S::Target>`.
+  /// Converts from `EmailAddr<S, P>` to `EmailAddr<&S::Target, P>`.
   #[cfg_attr(not(coverage), inline(always))]
-  pub fn as_deref(&self) -> EmailAddr<&S::Target>
+  pub fn as_deref(&self) -> EmailAddr<&S::Target, P>
   where
     S: core::ops::Deref,
   {
-    EmailAddr(core::ops::Deref::deref(&self.0))
+    EmailAddr::from_inner(core::ops::Deref::deref(&self.storage))
   }
 
   /// Returns the full email address as a string slice.
@@ -110,7 +144,7 @@ impl<S: ?Sized> EmailAddr<S> {
   where
     S: AsRef<str>,
   {
-    self.0.as_ref()
+    self.storage.as_ref()
   }
 
   /// Returns the full email address as bytes.
@@ -119,20 +153,38 @@ impl<S: ?Sized> EmailAddr<S> {
   where
     S: AsRef<[u8]>,
   {
-    self.0.as_ref()
+    self.storage.as_ref()
   }
 
+  /// Returns `true` if the domain-part is an address literal.
+  #[cfg_attr(not(coverage), inline(always))]
+  pub fn is_domain_literal(&self) -> bool
+  where
+    S: AsRef<[u8]>,
+  {
+    let bytes = self.storage.as_ref();
+    let at = find_at(bytes).expect("validated email addresses contain @");
+    bytes[at + 1..].starts_with(b"[")
+  }
+
+  #[cfg_attr(not(coverage), inline(always))]
+  const fn ref_cast(input: &S) -> &Self {
+    // SAFETY: EmailAddr<S, P> is #[repr(transparent)] over S, so references to
+    // S and EmailAddr<S, P> have the same layout and metadata, including for DSTs.
+    unsafe { &*(input as *const S as *const Self) }
+  }
+}
+
+impl<S: ?Sized> EmailAddr<S, Strict> {
   /// Returns the validated local-part.
   #[cfg_attr(not(coverage), inline(always))]
   pub fn local_part(&self) -> LocalPart<&str>
   where
     S: AsRef<str>,
   {
-    let input = self.0.as_ref();
+    let input = self.storage.as_ref();
     let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
-    LocalPart::<str>::try_from_str(&input[..at])
-      .expect("validated email addresses contain a valid local-part")
-      .as_ref()
+    LocalPart::<str>::from_valid_str(&input[..at]).as_ref()
   }
 
   /// Returns the validated domain-part.
@@ -141,11 +193,9 @@ impl<S: ?Sized> EmailAddr<S> {
   where
     S: AsRef<str>,
   {
-    let input = self.0.as_ref();
+    let input = self.storage.as_ref();
     let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
-    DomainPart::<str>::try_from_ascii_str(&input[at + 1..])
-      .expect("validated email addresses contain a valid domain-part")
-      .as_ref()
+    DomainPart::<str>::from_valid_str(&input[at + 1..]).as_ref()
   }
 
   /// Returns the local-part and domain-part as validated borrowed values.
@@ -163,10 +213,9 @@ impl<S: ?Sized> EmailAddr<S> {
   where
     S: AsRef<str>,
   {
-    let input = self.0.as_ref();
+    let input = self.storage.as_ref();
     let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
-    LocalPart::<str>::try_from_str(&input[..at])
-      .expect("validated email addresses contain a valid local-part")
+    LocalPart::<str>::from_valid_str(&input[..at])
   }
 
   /// Returns the validated domain-part as a borrowed DST wrapper.
@@ -175,10 +224,9 @@ impl<S: ?Sized> EmailAddr<S> {
   where
     S: AsRef<str>,
   {
-    let input = self.0.as_ref();
+    let input = self.storage.as_ref();
     let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
-    DomainPart::<str>::try_from_ascii_str(&input[at + 1..])
-      .expect("validated email addresses contain a valid domain-part")
+    DomainPart::<str>::from_valid_str(&input[at + 1..])
   }
 
   /// Returns the local-part and domain-part as borrowed DST wrappers.
@@ -189,70 +237,92 @@ impl<S: ?Sized> EmailAddr<S> {
   {
     (self.local_part_ref(), self.domain_part_ref())
   }
+}
 
-  /// Returns `true` if the domain-part is an address literal.
+impl<S: ?Sized> EmailAddr<S, Relax> {
+  /// Returns the local-part as validated by the relaxed policy.
   #[cfg_attr(not(coverage), inline(always))]
-  pub fn is_domain_literal(&self) -> bool
+  pub fn local_part(&self) -> &str
   where
-    S: AsRef<[u8]>,
+    S: AsRef<str>,
   {
-    let bytes = self.0.as_ref();
-    let at = find_at(bytes).expect("validated email addresses contain @");
-    bytes[at + 1..].starts_with(b"[")
+    let input = self.storage.as_ref();
+    let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
+    &input[..at]
   }
 
+  /// Returns the domain-part as validated by the relaxed policy.
   #[cfg_attr(not(coverage), inline(always))]
-  const fn ref_cast(input: &S) -> &Self {
-    // SAFETY: EmailAddr<S> is #[repr(transparent)] over S, so references to
-    // S and EmailAddr<S> have the same layout and metadata, including for DSTs.
-    unsafe { &*(input as *const S as *const Self) }
+  pub fn domain_part(&self) -> &str
+  where
+    S: AsRef<str>,
+  {
+    let input = self.storage.as_ref();
+    let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
+    &input[at + 1..]
+  }
+
+  /// Returns the local-part and domain-part as relaxed-policy string slices.
+  #[cfg_attr(not(coverage), inline(always))]
+  pub fn parts(&self) -> (&str, &str)
+  where
+    S: AsRef<str>,
+  {
+    (self.local_part(), self.domain_part())
   }
 }
 
-impl<S: ?Sized> core::borrow::Borrow<S> for EmailAddr<S> {
+impl<S> From<EmailAddr<S, Strict>> for EmailAddr<S, Relax> {
+  #[cfg_attr(not(coverage), inline(always))]
+  fn from(value: EmailAddr<S, Strict>) -> Self {
+    Self::from_inner(value.storage)
+  }
+}
+
+impl<S: ?Sized, P> core::borrow::Borrow<S> for EmailAddr<S, P> {
   #[cfg_attr(not(coverage), inline(always))]
   fn borrow(&self) -> &S {
-    &self.0
+    &self.storage
   }
 }
 
-impl<S: ?Sized> AsRef<str> for EmailAddr<S>
+impl<S: ?Sized, P> AsRef<str> for EmailAddr<S, P>
 where
   S: AsRef<str>,
 {
   #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &str {
-    self.0.as_ref()
+    self.storage.as_ref()
   }
 }
 
-impl<S: ?Sized> AsRef<[u8]> for EmailAddr<S>
+impl<S: ?Sized, P> AsRef<[u8]> for EmailAddr<S, P>
 where
   S: AsRef<[u8]>,
 {
   #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &[u8] {
-    self.0.as_ref()
+    self.storage.as_ref()
   }
 }
 
-impl<S: ?Sized> EmailAddr<&S> {
+impl<S: ?Sized, P> EmailAddr<&S, P> {
   /// Copies the referenced address storage.
   #[cfg_attr(not(coverage), inline(always))]
-  pub const fn copied(self) -> EmailAddr<S>
+  pub const fn copied(self) -> EmailAddr<S, P>
   where
     S: Copy,
   {
-    EmailAddr(*self.0)
+    EmailAddr::from_inner(*self.storage)
   }
 
   /// Clones the referenced address storage.
   #[cfg_attr(not(coverage), inline(always))]
-  pub fn cloned(self) -> EmailAddr<S>
+  pub fn cloned(self) -> EmailAddr<S, P>
   where
     S: Clone,
   {
-    EmailAddr(self.0.clone())
+    EmailAddr::from_inner(self.storage.clone())
   }
 }
 
@@ -272,7 +342,7 @@ impl EmailAddr<str> {
   /// Converts the address to borrowed bytes.
   #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes_addr(&self) -> &EmailAddr<[u8]> {
-    EmailAddr::<[u8]>::ref_cast(self.0.as_bytes())
+    EmailAddr::<[u8]>::ref_cast(self.storage.as_bytes())
   }
 }
 
@@ -287,7 +357,7 @@ impl EmailAddr<[u8]> {
   /// Converts the address to borrowed string storage.
   #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str_addr(&self) -> &EmailAddr<str> {
-    let input = str::from_utf8(&self.0).expect("validated email addresses are valid UTF-8");
+    let input = str::from_utf8(&self.storage).expect("validated email addresses are valid UTF-8");
     EmailAddr::<str>::ref_cast(input)
   }
 }
@@ -296,7 +366,7 @@ impl<'a> EmailAddr<&'a str> {
   /// Converts the address to borrowed bytes.
   #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes_addr(&self) -> EmailAddr<&'a [u8]> {
-    EmailAddr(self.0.as_bytes())
+    EmailAddr::from_inner(self.storage.as_bytes())
   }
 }
 
@@ -304,8 +374,8 @@ impl<'a> EmailAddr<&'a [u8]> {
   /// Converts the address to borrowed string storage.
   #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str_addr(&self) -> EmailAddr<&'a str> {
-    let input = str::from_utf8(self.0).expect("validated email addresses are valid UTF-8");
-    EmailAddr(input)
+    let input = str::from_utf8(self.storage).expect("validated email addresses are valid UTF-8");
+    EmailAddr::from_inner(input)
   }
 }
 
@@ -324,7 +394,7 @@ impl<'a> TryFrom<&'a str> for EmailAddr<&'a str> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     EmailAddr::<str>::try_from_ascii_str(input)?;
-    Ok(Self(input))
+    Ok(Self::from_inner(input))
   }
 }
 
@@ -334,7 +404,7 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<&'a [u8]> {
   #[inline]
   fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
     EmailAddr::<[u8]>::try_from_ascii_bytes(input)?;
-    Ok(Self(input))
+    Ok(Self::from_inner(input))
   }
 }
 
@@ -346,8 +416,10 @@ impl TryFrom<&str> for EmailAddr<Buffer> {
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self(Buffer::copy_from_slice(addr.0.as_bytes()))),
-        Either::Right(buf) => Ok(Self(buf)),
+        Either::Left(addr) => Ok(Self::from_inner(Buffer::copy_from_slice(
+          addr.storage.as_bytes(),
+        ))),
+        Either::Right(buf) => Ok(Self::from_inner(buf)),
       }
     }
 
@@ -359,7 +431,7 @@ impl TryFrom<&str> for EmailAddr<Buffer> {
         return Err(ParseEmailAddrError::DomainPart(ParseDomainPartError(())));
       }
 
-      Ok(Self(Buffer::copy_from_slice(input.as_bytes())))
+      Ok(Self::from_inner(Buffer::copy_from_slice(input.as_bytes())))
     }
   }
 }
@@ -372,8 +444,8 @@ impl TryFrom<&[u8]> for EmailAddr<Buffer> {
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self(Buffer::copy_from_slice(addr.0))),
-        Either::Right(buf) => Ok(Self(buf)),
+        Either::Left(addr) => Ok(Self::from_inner(Buffer::copy_from_slice(addr.storage))),
+        Either::Right(buf) => Ok(Self::from_inner(buf)),
       }
     }
 
@@ -385,8 +457,27 @@ impl TryFrom<&[u8]> for EmailAddr<Buffer> {
         return Err(ParseEmailAddrError::DomainPart(ParseDomainPartError(())));
       }
 
-      Ok(Self(Buffer::copy_from_slice(input)))
+      Ok(Self::from_inner(Buffer::copy_from_slice(input)))
     }
+  }
+}
+
+impl EmailAddr<Buffer, Relax> {
+  /// Parses an email address with custom parsing options.
+  #[cfg_attr(not(coverage), inline(always))]
+  pub fn parse_with_options(input: &str, options: Options) -> Result<Self, ParseEmailAddrError> {
+    Self::parse_bytes_with_options(input.as_bytes(), options)
+  }
+
+  /// Parses an email address from bytes with custom parsing options.
+  #[cfg_attr(not(coverage), inline(always))]
+  pub fn parse_bytes_with_options(
+    input: &[u8],
+    options: Options,
+  ) -> Result<Self, ParseEmailAddrError> {
+    let mut output = Buffer::new();
+    write_email_addr_with_options(input, &mut output, options)?;
+    Ok(Self::from_inner(output))
   }
 }
 
@@ -407,7 +498,7 @@ impl<S> EmailAddr<S> {
       verify_ascii_email_addr(bytes)?;
       let (_, domain) = split_email_addr(bytes)?;
       if !contains_ascii_alabel(domain) {
-        return Ok(Either::Left(Self(input)));
+        return Ok(Either::Left(Self::from_inner(input)));
       }
     }
 
@@ -431,13 +522,73 @@ impl<S> EmailAddr<S> {
       verify_ascii_email_addr(bytes)?;
       let (_, domain) = split_email_addr(bytes)?;
       if !contains_ascii_alabel(domain) {
-        return Ok(Either::Left(Self(input)));
+        return Ok(Either::Left(Self::from_inner(input)));
       }
     }
 
     let mut output = Buffer::new();
     write_normalized_email_addr(bytes, &mut output)?;
     Ok(Either::Right(output))
+  }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl<S> EmailAddr<S, Relax> {
+  /// Parses an email address from bytes with custom parsing options.
+  ///
+  /// The returned [`Either::Left`] value preserves the original storage when no
+  /// normalization was needed. [`Either::Right`] contains the normalized stack
+  /// buffer otherwise.
+  #[inline]
+  pub fn try_from_bytes_with_options(
+    input: S,
+    options: Options,
+  ) -> Result<RelaxedParseOutput<S>, ParseEmailAddrError>
+  where
+    S: AsRef<[u8]>,
+  {
+    let bytes = input.as_ref();
+    let mut output = Buffer::new();
+    write_email_addr_with_options(bytes, &mut output, options)?;
+    if output.as_bytes() == bytes {
+      Ok(Either::Left(EmailAddr::from_inner(input)))
+    } else {
+      Ok(Either::Right(EmailAddr::from_inner(output)))
+    }
+  }
+
+  /// Parses an email address from a string with custom parsing options.
+  ///
+  /// The returned [`Either::Left`] value preserves the original storage when no
+  /// normalization was needed. [`Either::Right`] contains the normalized stack
+  /// buffer otherwise.
+  #[inline]
+  pub fn try_from_str_with_options(
+    input: S,
+    options: Options,
+  ) -> Result<RelaxedParseOutput<S>, ParseEmailAddrError>
+  where
+    S: AsRef<str>,
+  {
+    let bytes = input.as_ref().as_bytes();
+    let mut output = Buffer::new();
+    write_email_addr_with_options(bytes, &mut output, options)?;
+    if output.as_bytes() == bytes {
+      Ok(Either::Left(EmailAddr::from_inner(input)))
+    } else {
+      Ok(Either::Right(EmailAddr::from_inner(output)))
+    }
+  }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl EmailAddr<String, Relax> {
+  /// Parses an email address with custom parsing options.
+  #[inline]
+  pub fn parse_with_options(input: &str, options: Options) -> Result<Self, ParseEmailAddrError> {
+    let mut output = Buffer::new();
+    write_email_addr_with_options(input.as_bytes(), &mut output, options)?;
+    Ok(Self::from_inner(output.into()))
   }
 }
 
@@ -458,8 +609,8 @@ impl<'a> TryFrom<&'a str> for EmailAddr<String> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self(addr.0.to_string())),
-      Either::Right(buf) => Ok(Self(buf.into())),
+      Either::Left(addr) => Ok(Self::from_inner(addr.storage.to_string())),
+      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
     }
   }
 }
@@ -471,8 +622,8 @@ impl TryFrom<String> for EmailAddr<String> {
   #[inline]
   fn try_from(input: String) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input.as_str())? {
-      Either::Left(_) => Ok(Self(input)),
-      Either::Right(buf) => Ok(Self(buf.into())),
+      Either::Left(_) => Ok(Self::from_inner(input)),
+      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
     }
   }
 }
@@ -496,8 +647,8 @@ macro_rules! impl_str_storage {
         #[inline]
         fn try_from(input: &'a str) -> Result<Self, Self::Error> {
           match EmailAddr::try_from_str(input)? {
-            Either::Left(addr) => Ok(Self(<$ty>::from(addr.0))),
-            Either::Right(buf) => Ok(Self(<$ty>::from(buf.as_str()))),
+            Either::Left(addr) => Ok(Self::from_inner(<$ty>::from(addr.storage))),
+            Either::Right(buf) => Ok(Self::from_inner(<$ty>::from(buf.as_str()))),
           }
         }
       }
@@ -533,8 +684,8 @@ macro_rules! impl_byte_storage {
         #[inline]
         fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
           match EmailAddr::try_from_bytes(input)? {
-            Either::Left(addr) => Ok(Self(<$ty>::from(addr.0))),
-            Either::Right(buf) => Ok(Self(<$ty>::from(buf.as_bytes()))),
+            Either::Left(addr) => Ok(Self::from_inner(<$ty>::from(addr.storage))),
+            Either::Right(buf) => Ok(Self::from_inner(<$ty>::from(buf.as_bytes()))),
           }
         }
       }
@@ -574,8 +725,8 @@ impl<'a> TryFrom<&'a str> for EmailAddr<Vec<u8>> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self(addr.0.as_bytes().to_vec())),
-      Either::Right(buf) => Ok(Self(buf.into())),
+      Either::Left(addr) => Ok(Self::from_inner(addr.storage.as_bytes().to_vec())),
+      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
     }
   }
 }
@@ -587,8 +738,8 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<Vec<u8>> {
   #[inline]
   fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_bytes(input)? {
-      Either::Left(addr) => Ok(Self(addr.0.to_vec())),
-      Either::Right(buf) => Ok(Self(buf.into())),
+      Either::Left(addr) => Ok(Self::from_inner(addr.storage.to_vec())),
+      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
     }
   }
 }
@@ -600,8 +751,8 @@ impl TryFrom<Vec<u8>> for EmailAddr<Vec<u8>> {
   #[inline]
   fn try_from(input: Vec<u8>) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_bytes(input.as_slice())? {
-      Either::Left(_) => Ok(Self(input)),
-      Either::Right(buf) => Ok(Self(buf.into())),
+      Either::Left(_) => Ok(Self::from_inner(input)),
+      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
     }
   }
 }
@@ -625,8 +776,10 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self(Bytes::copy_from_slice(addr.0.as_bytes()))),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(addr) => Ok(Self::from_inner(Bytes::copy_from_slice(
+          addr.storage.as_bytes(),
+        ))),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -637,8 +790,8 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self(Bytes::copy_from_slice(addr.0))),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(addr) => Ok(Self::from_inner(Bytes::copy_from_slice(addr.storage))),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -649,8 +802,8 @@ const _: () = {
     #[inline]
     fn try_from(input: Bytes) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input.as_ref())? {
-        Either::Left(_) => Ok(Self(input)),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(_) => Ok(Self::from_inner(input)),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -675,8 +828,8 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self(TinyVec::from(addr.0.as_bytes()))),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(addr) => Ok(Self::from_inner(TinyVec::from(addr.storage.as_bytes()))),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -687,8 +840,8 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self(TinyVec::from(addr.0))),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(addr) => Ok(Self::from_inner(TinyVec::from(addr.storage))),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -699,8 +852,8 @@ const _: () = {
     #[inline]
     fn try_from(input: TinyVec<[u8; N]>) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input.as_ref())? {
-        Either::Left(_) => Ok(Self(input)),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(_) => Ok(Self::from_inner(input)),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -725,8 +878,10 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self(SmallVec::from_slice(addr.0.as_bytes()))),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(addr) => Ok(Self::from_inner(SmallVec::from_slice(
+          addr.storage.as_bytes(),
+        ))),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -737,8 +892,8 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self(SmallVec::from_slice(addr.0))),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(addr) => Ok(Self::from_inner(SmallVec::from_slice(addr.storage))),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -749,8 +904,8 @@ const _: () = {
     #[inline]
     fn try_from(input: SmallVec<[u8; N]>) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input.as_ref())? {
-        Either::Left(_) => Ok(Self(input)),
-        Either::Right(buf) => Ok(Self(buf.into())),
+        Either::Left(_) => Ok(Self::from_inner(input)),
+        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
       }
     }
   }
@@ -763,8 +918,8 @@ impl<'a> TryFrom<&'a str> for EmailAddr<Cow<'a, str>> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self(Cow::Borrowed(addr.0))),
-      Either::Right(buf) => Ok(Self(Cow::Owned(buf.into()))),
+      Either::Left(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage))),
+      Either::Right(buf) => Ok(Self::from_inner(Cow::Owned(buf.into()))),
     }
   }
 }
@@ -776,8 +931,8 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<Cow<'a, [u8]>> {
   #[inline]
   fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_bytes(input)? {
-      Either::Left(addr) => Ok(Self(Cow::Borrowed(addr.0))),
-      Either::Right(buf) => Ok(Self(Cow::Owned(buf.into()))),
+      Either::Left(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage))),
+      Either::Right(buf) => Ok(Self::from_inner(Cow::Owned(buf.into()))),
     }
   }
 }
@@ -789,8 +944,8 @@ impl<'a> TryFrom<&'a str> for EmailAddr<Cow<'a, [u8]>> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self(Cow::Borrowed(addr.0.as_bytes()))),
-      Either::Right(buf) => Ok(Self(Cow::Owned(buf.into()))),
+      Either::Left(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage.as_bytes()))),
+      Either::Right(buf) => Ok(Self::from_inner(Cow::Owned(buf.into()))),
     }
   }
 }
@@ -815,11 +970,20 @@ pub fn verify_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> {
   write_normalized_email_addr(input, &mut output)
 }
 
+/// Verifies that `input` is a valid email address under custom parsing options.
+pub fn verify_email_addr_with_options(
+  input: &[u8],
+  options: Options,
+) -> Result<(), ParseEmailAddrError> {
+  let mut output = Buffer::new();
+  write_email_addr_with_options(input, &mut output, options)
+}
+
 /// Verifies that `input` is a valid ASCII email address.
 ///
 /// This accepts dot-atom and quoted-string local-parts, DNS domain-parts, and
 /// bracketed IPv4/IPv6 domain literals. It enforces the 254-byte email address
-/// limit and 64-byte local-part limit. Use [`verify_email_addr`] when SMTPUTF8
+/// limit and 64-byte local-part limit. Use `verify_email_addr` when SMTPUTF8
 /// local-parts or IDNA domain-parts should be accepted.
 pub fn verify_ascii_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> {
   if input.is_empty() || input.len() > MAX_EMAIL_ADDR_LENGTH || !input.is_ascii() {
@@ -873,6 +1037,31 @@ fn write_normalized_email_addr(
     .push(b'@')
     .map_err(|_| ParseEmailAddrError::Address)?;
   write_normalized_domain_part(domain, output)?;
+  Ok(())
+}
+
+fn write_email_addr_with_options(
+  input: &[u8],
+  output: &mut Buffer,
+  options: Options,
+) -> Result<(), ParseEmailAddrError> {
+  if input.is_empty() {
+    return Err(ParseEmailAddrError::Address);
+  }
+
+  let (local, domain) = split_email_addr(input)?;
+  verify_local_part_with_limit(
+    local,
+    options.limits().max_local_part_len(),
+    options.local().smtp_utf8().is_allow(),
+  )?;
+  output
+    .extend_from_slice(local)
+    .map_err(|_| ParseEmailAddrError::Address)?;
+  output
+    .push(b'@')
+    .map_err(|_| ParseEmailAddrError::Address)?;
+  write_domain_part_with_options(domain, output, options.domain())?;
   Ok(())
 }
 

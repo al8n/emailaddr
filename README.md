@@ -116,6 +116,54 @@ assert!(verify_ascii_email_addr(b"user@example_com").is_err());
 assert!(verify_ascii_email_addr(b"user@example.com.").is_err());
 ```
 
+## Parsing Options
+
+Default parsing stays RFC-compatible. [`Options`] adds application policy and
+explicit non-standard relaxations without changing the default constructors.
+`parse_with_options` is available on `EmailAddr<S, Relax>`, so relaxed parsing
+is visible in the type while ordinary `EmailAddr<S>` remains strict.
+
+```rust,ignore
+use emailaddr::{
+    Buffer,
+    DomainOptions,
+    DomainUnicodePolicy,
+    EmailAddr,
+    Limits,
+    LocalOptions,
+    Options,
+    Relax,
+    SmtpUtf8Policy,
+};
+
+let require_tld = Options::new()
+    .with_domain(DomainOptions::new().with_required_tld());
+assert!(EmailAddr::<Buffer, Relax>::parse_with_options("ted.backer@gmail", require_tld).is_err());
+
+let long_local = Options::new()
+    .with_limits(Limits::new().with_max_local_part_len(128));
+assert!(EmailAddr::<Buffer, Relax>::parse_with_options(
+    "reply+2a907e&3uofr1&&99cd5c22c2ca5b23655799316a8d8eb2dd83c3c487612cb9b9a00bf13f13afe2@mg1.substack.com",
+    long_local,
+).is_ok());
+
+let ascii_local = Options::new()
+    .with_local(LocalOptions::new().with_smtp_utf8(SmtpUtf8Policy::Forbid));
+assert!(EmailAddr::<Buffer, Relax>::parse_with_options("用户@example.com", ascii_local).is_err());
+
+let no_literals = Options::new()
+    .with_domain(DomainOptions::new().without_domain_literals());
+assert!(EmailAddr::<Buffer, Relax>::parse_with_options("user@[127.0.0.1]", no_literals).is_err());
+
+let raw_utf8_domain = Options::new()
+    .with_domain(DomainOptions::new().with_unicode(DomainUnicodePolicy::NonStandardUtf8));
+let addr = EmailAddr::<Buffer, Relax>::parse_with_options("👋@💌.kz", raw_utf8_domain).unwrap();
+assert_eq!(addr.as_str(), "👋@💌.kz");
+```
+
+`DomainUnicodePolicy::NonStandardUtf8` preserves raw UTF-8 DNS labels as
+application data. It is not SMTP/DNS-compatible IDNA normalization.
+
 ## Feature Flags
 
 | Feature | Description |

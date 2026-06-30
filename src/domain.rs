@@ -4,7 +4,7 @@ use core::{
   str::{self, FromStr},
 };
 
-use crate::Buffer;
+use crate::{Buffer, DomainOptions, DomainUnicodePolicy};
 
 /// The maximum DNS domain length accepted for email domains.
 pub const MAX_DOMAIN_PART_LENGTH: usize = 253;
@@ -123,6 +123,11 @@ impl DomainPart<str> {
   pub fn try_from_ascii_str(input: &str) -> Result<&Self, ParseDomainPartError> {
     verify_ascii_domain_part(input.as_bytes())?;
     Ok(Self::ref_cast(input))
+  }
+
+  #[cfg_attr(not(coverage), inline(always))]
+  pub(crate) const fn from_valid_str(input: &str) -> &Self {
+    Self::ref_cast(input)
   }
 
   /// Converts the domain-part to borrowed bytes.
@@ -298,6 +303,44 @@ fn verify_ascii_dns_domain_alabel_policy(input: &[u8]) -> Result<(), ParseDomain
   }
 }
 
+pub(crate) fn is_domain_literal_bytes(input: &[u8]) -> bool {
+  input.starts_with(b"[")
+}
+
+fn check_domain_qualification(
+  input: &[u8],
+  options: DomainOptions,
+) -> Result<(), ParseDomainPartError> {
+  if is_domain_literal_bytes(input) {
+    return if options.literals().is_forbid() {
+      Err(ParseDomainPartError(()))
+    } else {
+      Ok(())
+    };
+  }
+
+  if dns_label_count(input) < options.minimum_dns_labels() {
+    return Err(ParseDomainPartError(()));
+  }
+
+  Ok(())
+}
+
+fn dns_label_count(input: &[u8]) -> usize {
+  if input.is_empty() {
+    return 0;
+  }
+
+  let mut count = 1;
+  for byte in input {
+    if *byte == b'.' {
+      count += 1;
+    }
+  }
+
+  count
+}
+
 const fn is_ascii_alnum(byte: u8) -> bool {
   matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9')
 }
@@ -400,6 +443,142 @@ pub(crate) fn write_normalized_domain_part(
   output
     .extend_from_slice(normalized.as_bytes())
     .map_err(|_| ParseDomainPartError(()))
+}
+
+pub(crate) fn write_domain_part_with_options(
+  input: &[u8],
+  output: &mut Buffer,
+  options: DomainOptions,
+) -> Result<(), ParseDomainPartError> {
+  if input.is_ascii() {
+    if is_domain_literal_bytes(input) && options.literals().is_forbid() {
+      return Err(ParseDomainPartError(()));
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    if options.unicode().is_idna() {
+      let start = output.as_bytes().len();
+      write_normalized_domain_part(input, output)?;
+      return check_domain_qualification(&output.as_bytes()[start..], options);
+    }
+
+    verify_ascii_domain_part(input)?;
+    check_domain_qualification(input, options)?;
+    return output
+      .extend_from_slice(input)
+      .map_err(|_| ParseDomainPartError(()));
+  }
+
+  match options.unicode() {
+    DomainUnicodePolicy::AsciiOnly => Err(ParseDomainPartError(())),
+    DomainUnicodePolicy::Idna => {
+      #[cfg(any(feature = "alloc", feature = "std"))]
+      {
+        let mut normalized = Buffer::new();
+        domain_to_ascii(input, &mut normalized)?;
+        check_domain_qualification(normalized.as_bytes(), options)?;
+        output
+          .extend_from_slice(normalized.as_bytes())
+          .map_err(|_| ParseDomainPartError(()))?;
+        Ok(())
+      }
+
+      #[cfg(not(any(feature = "alloc", feature = "std")))]
+      {
+        Err(ParseDomainPartError(()))
+      }
+    }
+    DomainUnicodePolicy::NonStandardUtf8 => {
+      verify_non_standard_utf8_dns_domain(input)?;
+      check_domain_qualification(input, options)?;
+      output
+        .extend_from_slice(input)
+        .map_err(|_| ParseDomainPartError(()))
+    }
+  }
+}
+
+fn verify_non_standard_utf8_dns_domain(input: &[u8]) -> Result<(), ParseDomainPartError> {
+  const MAX_LABEL_LENGTH: usize = 63;
+
+  if input.is_empty() || input.len() > MAX_DOMAIN_PART_LENGTH || is_domain_literal_bytes(input) {
+    return Err(ParseDomainPartError(()));
+  }
+
+  let domain = str::from_utf8(input).map_err(|_| ParseDomainPartError(()))?;
+  if contains_ascii_alabel(input) {
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+      let mut normalized = Buffer::new();
+      domain_to_ascii(input, &mut normalized)?;
+    }
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    {
+      return Err(ParseDomainPartError(()));
+    }
+  }
+
+  let mut wrote_label = false;
+
+  for label in domain.split('.') {
+    if label.is_empty() || label.len() > MAX_LABEL_LENGTH {
+      return Err(ParseDomainPartError(()));
+    }
+
+    verify_non_standard_utf8_dns_label(label)?;
+    wrote_label = true;
+  }
+
+  if !wrote_label {
+    return Err(ParseDomainPartError(()));
+  }
+
+  Ok(())
+}
+
+fn verify_non_standard_utf8_dns_label(label: &str) -> Result<(), ParseDomainPartError> {
+  if label.is_ascii() {
+    return verify_ascii_dns_domain(label.as_bytes());
+  }
+
+  let mut chars = label.chars();
+  if matches!(chars.nth(2), Some('-')) && matches!(chars.next(), Some('-')) {
+    return Err(ParseDomainPartError(()));
+  }
+
+  let mut wrote_char = false;
+  let mut last_was_ascii_hyphen = false;
+
+  for ch in label.chars() {
+    if ch.is_ascii() {
+      let byte = ch as u8;
+      if !wrote_char {
+        if !is_ascii_alnum(byte) {
+          return Err(ParseDomainPartError(()));
+        }
+      } else if !is_ascii_alnum(byte) && byte != b'-' {
+        return Err(ParseDomainPartError(()));
+      }
+
+      last_was_ascii_hyphen = byte == b'-';
+    } else {
+      if ch.is_control() || ch.is_whitespace() || matches!(ch, '\u{3002}' | '\u{ff0e}' | '\u{ff61}')
+      {
+        return Err(ParseDomainPartError(()));
+      }
+
+      last_was_ascii_hyphen = false;
+    }
+
+    wrote_char = true;
+  }
+
+  if !wrote_char || last_was_ascii_hyphen {
+    return Err(ParseDomainPartError(()));
+  }
+
+  Ok(())
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]

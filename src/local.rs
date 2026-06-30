@@ -121,6 +121,11 @@ impl LocalPart<str> {
     Ok(Self::ref_cast(input))
   }
 
+  #[cfg_attr(not(coverage), inline(always))]
+  pub(crate) const fn from_valid_str(input: &str) -> &Self {
+    Self::ref_cast(input)
+  }
+
   /// Validates an ASCII local-part and returns it as a borrowed DST.
   #[cfg_attr(not(coverage), inline(always))]
   pub const fn try_from_ascii_str(input: &str) -> Result<&Self, ParseLocalPartError> {
@@ -238,8 +243,15 @@ pub const fn is_atext(byte: u8) -> bool {
 /// empty input, non-ASCII bytes, leading/trailing/consecutive dots in dot-atoms,
 /// invalid quoted-pairs, and local-parts longer than 64 bytes.
 pub const fn verify_ascii_local_part(input: &[u8]) -> Result<(), ParseLocalPartError> {
+  verify_ascii_local_part_with_limit(input, MAX_LOCAL_PART_LENGTH)
+}
+
+pub(crate) const fn verify_ascii_local_part_with_limit(
+  input: &[u8],
+  max_len: usize,
+) -> Result<(), ParseLocalPartError> {
   let len = input.len();
-  if len == 0 || len > MAX_LOCAL_PART_LENGTH {
+  if len == 0 || len > max_len {
     return Err(ParseLocalPartError(()));
   }
 
@@ -255,14 +267,26 @@ pub const fn verify_ascii_local_part(input: &[u8]) -> Result<(), ParseLocalPartE
 /// This accepts the ASCII local-part syntax from RFC 5321 and the SMTPUTF8
 /// extensions from RFC 6531. Non-ASCII input must be valid UTF-8.
 pub fn verify_local_part(input: &[u8]) -> Result<(), ParseLocalPartError> {
+  verify_local_part_with_limit(input, MAX_LOCAL_PART_LENGTH, true)
+}
+
+pub(crate) fn verify_local_part_with_limit(
+  input: &[u8],
+  max_len: usize,
+  smtp_utf8: bool,
+) -> Result<(), ParseLocalPartError> {
   if input.is_ascii() {
-    return verify_ascii_local_part(input);
+    return verify_ascii_local_part_with_limit(input, max_len);
+  }
+
+  if !smtp_utf8 {
+    return Err(ParseLocalPartError(()));
   }
 
   let input = core::str::from_utf8(input).map_err(|_| ParseLocalPartError(()))?;
   let bytes = input.as_bytes();
   let len = bytes.len();
-  if len == 0 || len > MAX_LOCAL_PART_LENGTH {
+  if len == 0 || len > max_len {
     return Err(ParseLocalPartError(()));
   }
 

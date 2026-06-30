@@ -83,7 +83,7 @@ macro_rules! impl_arbitrary_from_buffer {
     $(
       impl<'a> Arbitrary<'a> for EmailAddr<$ty> {
         fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-          arbitrary_email(u).map(|addr| EmailAddr(addr.0.into()))
+          arbitrary_email(u).map(|addr| EmailAddr::from_inner(addr.storage.into()))
         }
       }
     )+
@@ -118,14 +118,14 @@ impl_arbitrary_from_buffer!(bytes_1::Bytes);
 #[cfg(feature = "tinyvec_1")]
 impl<'a, const N: usize> Arbitrary<'a> for EmailAddr<tinyvec_1::TinyVec<[u8; N]>> {
   fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-    arbitrary_email(u).map(|addr| EmailAddr(addr.0.into()))
+    arbitrary_email(u).map(|addr| EmailAddr::from_inner(addr.storage.into()))
   }
 }
 
 #[cfg(feature = "smallvec_1")]
 impl<'a, const N: usize> Arbitrary<'a> for EmailAddr<smallvec_1::SmallVec<[u8; N]>> {
   fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-    arbitrary_email(u).map(|addr| EmailAddr(addr.0.into()))
+    arbitrary_email(u).map(|addr| EmailAddr::from_inner(addr.storage.into()))
   }
 }
 

@@ -164,7 +164,7 @@ impl<const N: usize> EmailAddrSerdeStorage for smallvec_1::SmallVec<[u8; N]> {
   }
 }
 
-impl<S: ?Sized> Serialize for EmailAddr<S>
+impl<S: ?Sized, P> Serialize for EmailAddr<S, P>
 where
   S: EmailAddrSerdeStorage,
 {
@@ -366,7 +366,7 @@ impl<'de> Visitor<'de> for EmailAddrCowStrVisitor {
     E: de::Error,
   {
     EmailAddr::<String>::try_from(value)
-      .map(|addr| EmailAddr(Cow::Owned(addr.into_inner())))
+      .map(|addr| EmailAddr::from_inner(Cow::Owned(addr.into_inner())))
       .map_err(E::custom)
   }
 }
@@ -391,7 +391,7 @@ impl<'de> Visitor<'de> for EmailAddrCowBytesVisitor {
     E: de::Error,
   {
     EmailAddr::<Vec<u8>>::try_from(value)
-      .map(|addr| EmailAddr(Cow::Owned(addr.into_inner())))
+      .map(|addr| EmailAddr::from_inner(Cow::Owned(addr.into_inner())))
       .map_err(E::custom)
   }
 }

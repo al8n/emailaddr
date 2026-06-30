@@ -14,6 +14,7 @@ pub use addr::*;
 pub use buffer::*;
 pub use domain::*;
 pub use local::*;
+pub use options::*;
 
 mod addr;
 #[cfg(all(feature = "arbitrary", any(feature = "alloc", feature = "std")))]
@@ -21,6 +22,7 @@ mod arbitrary_impl;
 mod buffer;
 mod domain;
 mod local;
+mod options;
 #[cfg(all(feature = "quickcheck", any(feature = "alloc", feature = "std")))]
 mod quickcheck_impl;
 #[cfg(feature = "serde")]

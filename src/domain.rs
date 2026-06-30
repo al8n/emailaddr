@@ -16,7 +16,7 @@ pub struct ParseDomainPartError(pub(crate) ());
 
 impl ParseDomainPartError {
   /// Returns the error message.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_str(&self) -> &'static str {
     "invalid email domain-part"
   }
@@ -42,7 +42,7 @@ where
 
 impl<S: ?Sized> DomainPart<S> {
   /// Returns the inner storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn into_inner(self) -> S
   where
     S: Sized,
@@ -51,18 +51,18 @@ impl<S: ?Sized> DomainPart<S> {
   }
 
   /// Returns a reference to the inner storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_inner(&self) -> &S {
     &self.0
   }
 
   /// Converts from `&DomainPart<S>` to `DomainPart<&S>`.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_ref(&self) -> DomainPart<&S> {
     DomainPart(&self.0)
   }
 
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   const fn ref_cast(input: &S) -> &Self {
     // SAFETY: DomainPart<S> is #[repr(transparent)] over S, so references to
     // S and DomainPart<S> have the same layout and metadata, including for DSTs.
@@ -72,7 +72,7 @@ impl<S: ?Sized> DomainPart<S> {
 
 impl<S> DomainPart<&S> {
   /// Copies the referenced domain-part storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn copied(self) -> DomainPart<S>
   where
     S: Copy,
@@ -81,7 +81,7 @@ impl<S> DomainPart<&S> {
   }
 
   /// Clones the referenced domain-part storage.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn cloned(self) -> DomainPart<S>
   where
     S: Clone,
@@ -91,7 +91,7 @@ impl<S> DomainPart<&S> {
 }
 
 impl<S: ?Sized> core::borrow::Borrow<S> for DomainPart<S> {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn borrow(&self) -> &S {
     &self.0
   }
@@ -101,7 +101,7 @@ impl<S: ?Sized> AsRef<str> for DomainPart<S>
 where
   S: AsRef<str>,
 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &str {
     self.0.as_ref()
   }
@@ -111,7 +111,7 @@ impl<S: ?Sized> AsRef<[u8]> for DomainPart<S>
 where
   S: AsRef<[u8]>,
 {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &[u8] {
     self.0.as_ref()
   }
@@ -119,14 +119,14 @@ where
 
 impl DomainPart<str> {
   /// Validates an ASCII domain-part and returns it as a borrowed DST.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn try_from_ascii_str(input: &str) -> Result<&Self, ParseDomainPartError> {
     verify_ascii_domain_part(input.as_bytes())?;
     Ok(Self::ref_cast(input))
   }
 
   /// Converts the domain-part to borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes(&self) -> &DomainPart<[u8]> {
     DomainPart::<[u8]>::ref_cast(self.0.as_bytes())
   }
@@ -134,14 +134,14 @@ impl DomainPart<str> {
 
 impl DomainPart<[u8]> {
   /// Validates an ASCII domain-part and returns it as borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn try_from_ascii_bytes(input: &[u8]) -> Result<&Self, ParseDomainPartError> {
     verify_ascii_domain_part(input)?;
     Ok(Self::ref_cast(input))
   }
 
   /// Converts the domain-part to a borrowed string.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str(&self) -> &DomainPart<str> {
     let input = str::from_utf8(&self.0).expect("validated domain-parts are valid UTF-8");
     DomainPart::<str>::ref_cast(input)
@@ -150,7 +150,7 @@ impl DomainPart<[u8]> {
 
 impl<'a> DomainPart<&'a str> {
   /// Converts the domain-part to borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub const fn as_bytes(&self) -> DomainPart<&'a [u8]> {
     DomainPart(self.0.as_bytes())
   }
@@ -158,7 +158,7 @@ impl<'a> DomainPart<&'a str> {
 
 impl<'a> DomainPart<&'a [u8]> {
   /// Converts the domain-part to a borrowed string.
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   pub fn as_str(&self) -> DomainPart<&'a str> {
     let input = str::from_utf8(self.0).expect("validated domain-parts are valid UTF-8");
     DomainPart(input)

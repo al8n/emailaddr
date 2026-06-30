@@ -14,7 +14,7 @@ trait SerdeStorage {
   fn as_valid_str(&self) -> &str;
 }
 
-#[cfg_attr(not(tarpaulin), inline(always))]
+#[cfg_attr(not(coverage), inline(always))]
 fn valid_utf8(bytes: &[u8]) -> &str {
   str::from_utf8(bytes).expect("validated email addresses are valid UTF-8")
 }
@@ -292,7 +292,7 @@ impl<'de> Deserialize<'de> for EmailAddr<Cow<'de, str>> {
 struct EmailAddrVisitor<T>(PhantomData<fn() -> T>);
 
 impl<T> EmailAddrVisitor<T> {
-  #[cfg_attr(not(tarpaulin), inline(always))]
+  #[cfg_attr(not(coverage), inline(always))]
   const fn new() -> Self {
     Self(PhantomData)
   }

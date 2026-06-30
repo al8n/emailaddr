@@ -572,9 +572,9 @@ mod serde {
   use core::{fmt, marker::PhantomData};
 
   use serde_core::{
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{self, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor},
     ser::SerializeStruct,
-    Deserialize, Deserializer, Serialize, Serializer,
   };
 
   use super::{

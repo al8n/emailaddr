@@ -1,12 +1,12 @@
 use emailaddr::{
-  verify_ascii_dns_domain, verify_ascii_domain_part, verify_ascii_local_part,
-  verify_email_addr_with_options, verify_local_part, Buffer, DomainLiteralPolicy, DomainOptions,
-  DomainPart, DomainUnicodePolicy, EmailAddr, Limits, LocalOptions, LocalPart, Options, Relax,
-  SmtpUtf8Policy,
+  Buffer, DomainLiteralPolicy, DomainOptions, DomainPart, DomainUnicodePolicy, EmailAddr, Limits,
+  LocalOptions, LocalPart, Options, Relax, SmtpUtf8Policy, verify_ascii_dns_domain,
+  verify_ascii_domain_part, verify_ascii_local_part, verify_email_addr_with_options,
+  verify_local_part,
 };
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-use emailaddr::{verify_ascii_email_addr, verify_email_addr, MAX_EMAIL_ADDR_LENGTH};
+use emailaddr::{MAX_EMAIL_ADDR_LENGTH, verify_ascii_email_addr, verify_email_addr};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use std::{borrow::Cow, rc::Rc, sync::Arc};
@@ -704,12 +704,12 @@ fn supports_serde_core_for_options() {
   use core::fmt;
 
   use serde_core::{
+    Deserialize, Serialize, Serializer,
     de::{
-      value::{Error as DeError, MapDeserializer, StrDeserializer},
       DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor,
+      value::{Error as DeError, MapDeserializer, StrDeserializer},
     },
     ser::{Error as SerErrorTrait, Impossible, SerializeStruct},
-    Deserialize, Serialize, Serializer,
   };
   use std::{string::String, vec::Vec};
 
@@ -1284,11 +1284,13 @@ fn supports_serde_core_for_options() {
   );
   assert!(LocalOptions::deserialize(BinaryValue::Seq(vec![])).is_err());
   assert!(DomainOptions::deserialize(BinaryValue::Seq(vec![BinaryValue::U64(2)])).is_err());
-  assert!(DomainOptions::deserialize(BinaryValue::Seq(vec![
-    BinaryValue::U64(2),
-    BinaryValue::U8(0)
-  ]))
-  .is_err());
+  assert!(
+    DomainOptions::deserialize(BinaryValue::Seq(vec![
+      BinaryValue::U64(2),
+      BinaryValue::U8(0)
+    ]))
+    .is_err()
+  );
   assert!(Limits::deserialize(BinaryValue::Seq(vec![])).is_err());
   let map_options = Options::deserialize(BinaryValue::Map(vec![
     ("local", binary_local()),
@@ -1312,11 +1314,13 @@ fn supports_serde_core_for_options() {
   assert!(Options::deserialize(BinaryValue::Map(vec![])).is_err());
   assert!(Options::deserialize(BinaryValue::Map(vec![("local", binary_local())])).is_err());
   assert!(LocalOptions::deserialize(BinaryValue::Map(vec![])).is_err());
-  assert!(DomainOptions::deserialize(BinaryValue::Map(vec![
-    ("minimum_dns_labels", BinaryValue::U64(2)),
-    ("literals", BinaryValue::U8(0)),
-  ]))
-  .is_err());
+  assert!(
+    DomainOptions::deserialize(BinaryValue::Map(vec![
+      ("minimum_dns_labels", BinaryValue::U64(2)),
+      ("literals", BinaryValue::U8(0)),
+    ]))
+    .is_err()
+  );
   assert!(Limits::deserialize(BinaryValue::Map(vec![])).is_err());
 
   let empty = core::iter::empty::<(&str, StrDeserializer<'_, DeError>)>();
@@ -1547,8 +1551,8 @@ fn supports_serde_core_for_owned_storage() {
 #[test]
 fn serde_deserialization_rejects_malformed_ascii_alabels() {
   use serde_core::{
-    de::value::{Error, StrDeserializer},
     Deserialize,
+    de::value::{Error, StrDeserializer},
   };
 
   let valid = StrDeserializer::<Error>::new("user@xn--0zwm56d.xn--fiqs8s");
@@ -1589,8 +1593,8 @@ fn serde_deserialization_rejects_malformed_ascii_alabels() {
 #[test]
 fn serde_only_buffer_deserialization_rejects_ascii_alabels() {
   use serde_core::{
-    de::value::{Error, StrDeserializer},
     Deserialize,
+    de::value::{Error, StrDeserializer},
   };
 
   let invalid = StrDeserializer::<Error>::new("user@xn--55555577.com");

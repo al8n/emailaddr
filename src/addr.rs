@@ -14,8 +14,8 @@ use std::{
 use either::Either;
 
 use crate::{
-  Buffer, DomainPart, LocalPart, Options, ParseDomainPartError, ParseLocalPartError,
-  MAX_LOCAL_PART_LENGTH,
+  Buffer, DomainPart, LocalPart, MAX_LOCAL_PART_LENGTH, Options, ParseDomainPartError,
+  ParseLocalPartError,
 };
 
 use crate::{

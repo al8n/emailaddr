@@ -40,6 +40,18 @@ where
   }
 }
 
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl<S: ?Sized> zeroize::Zeroize for DomainPart<S>
+where
+  S: zeroize::Zeroize,
+{
+  #[inline]
+  fn zeroize(&mut self) {
+    zeroize::Zeroize::zeroize(&mut self.0);
+  }
+}
+
 impl<S: ?Sized> DomainPart<S> {
   /// Returns the inner storage.
   #[cfg_attr(not(coverage), inline(always))]

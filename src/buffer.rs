@@ -52,6 +52,15 @@ impl AsRef<[u8]> for Buffer {
   }
 }
 
+#[cfg(feature = "zeroize")]
+#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
+impl zeroize::Zeroize for Buffer {
+  #[inline]
+  fn zeroize(&mut self) {
+    zeroize::Zeroize::zeroize(&mut self.buf);
+  }
+}
+
 impl<'a> From<&'a Buffer> for &'a str {
   #[cfg_attr(not(coverage), inline(always))]
   fn from(value: &'a Buffer) -> Self {

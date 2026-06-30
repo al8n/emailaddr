@@ -84,7 +84,7 @@ macro_rules! impl_arbitrary_from_buffer {
       impl Arbitrary for EmailAddr<$ty> {
         fn arbitrary(g: &mut Gen) -> Self {
           let addr = arbitrary_email(g);
-          EmailAddr(addr.0.into())
+          EmailAddr::from_inner(addr.storage.into())
         }
       }
     )+
@@ -120,7 +120,7 @@ impl_arbitrary_from_buffer!(bytes_1::Bytes);
 impl<const N: usize> Arbitrary for EmailAddr<tinyvec_1::TinyVec<[u8; N]>> {
   fn arbitrary(g: &mut Gen) -> Self {
     let addr = arbitrary_email(g);
-    EmailAddr(addr.0.into())
+    EmailAddr::from_inner(addr.storage.into())
   }
 }
 
@@ -128,7 +128,7 @@ impl<const N: usize> Arbitrary for EmailAddr<tinyvec_1::TinyVec<[u8; N]>> {
 impl<const N: usize> Arbitrary for EmailAddr<smallvec_1::SmallVec<[u8; N]>> {
   fn arbitrary(g: &mut Gen) -> Self {
     let addr = arbitrary_email(g);
-    EmailAddr(addr.0.into())
+    EmailAddr::from_inner(addr.storage.into())
   }
 }
 

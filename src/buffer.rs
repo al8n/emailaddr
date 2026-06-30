@@ -215,7 +215,6 @@ impl Buffer {
     &self.buf[..self.len()]
   }
 
-  #[cfg(any(feature = "alloc", feature = "std"))]
   #[cfg_attr(not(coverage), inline(always))]
   pub(crate) const fn push(&mut self, byte: u8) -> Result<(), u8> {
     let len = self.len();

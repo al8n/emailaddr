@@ -1,10 +1,9 @@
 use emailaddr::{
-  verify_ascii_dns_domain, verify_ascii_domain_part, verify_ascii_local_part, verify_local_part,
-  DomainPart, EmailAddr, LocalPart,
+  verify_ascii_dns_domain, verify_ascii_domain_part, verify_ascii_local_part,
+  verify_email_addr_with_options, verify_local_part, Buffer, DomainLiteralPolicy, DomainOptions,
+  DomainPart, DomainUnicodePolicy, EmailAddr, Limits, LocalOptions, LocalPart, Options, Relax,
+  SmtpUtf8Policy,
 };
-
-#[cfg(any(feature = "alloc", feature = "serde", feature = "std"))]
-use emailaddr::Buffer;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use emailaddr::{verify_ascii_email_addr, verify_email_addr, MAX_EMAIL_ADDR_LENGTH};
@@ -143,6 +142,89 @@ fn validates_domain_literals() {
   let general = EmailAddr::try_from_ascii_str("user@[TAG:payload]").unwrap();
   assert!(general.is_domain_literal());
   assert_eq!(general.domain_part().as_inner(), &"[TAG:payload]");
+}
+
+#[test]
+fn supports_parse_options_for_domain_literals() {
+  let literal = "user@[127.0.0.1]";
+  let default = EmailAddr::<Buffer, Relax>::parse_with_options(literal, Options::new()).unwrap();
+  assert!(default.is_domain_literal());
+
+  let forbidden = Options::new().with_domain(DomainOptions::new().without_domain_literals());
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options(literal, forbidden).is_err());
+  assert!(verify_email_addr_with_options(literal.as_bytes(), forbidden).is_err());
+
+  let explicit =
+    Options::new().with_domain(DomainOptions::new().with_literals(DomainLiteralPolicy::Forbid));
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options(literal, explicit).is_err());
+}
+
+#[test]
+fn converts_strict_email_addr_into_relaxed_email_addr() {
+  let strict = EmailAddr::<Buffer>::try_from("user@example.com").unwrap();
+  let relaxed: EmailAddr<Buffer, Relax> = strict.into();
+  assert_eq!(relaxed.as_str(), "user@example.com");
+  assert_eq!(relaxed.parts(), ("user", "example.com"));
+}
+
+#[test]
+fn supports_parse_options_for_minimum_dns_labels() {
+  let single = "ted.backer@gmail";
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options(single, Options::new()).is_ok());
+
+  let require_tld = Options::new().with_domain(DomainOptions::new().with_required_tld());
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options(single, require_tld).is_err());
+  assert!(verify_email_addr_with_options(single.as_bytes(), require_tld).is_err());
+
+  let multi = "ted.backer@gmail.com";
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options(multi, require_tld).is_ok());
+
+  let three_labels = Options::new().with_domain(DomainOptions::new().with_minimum_dns_labels(3));
+  assert!(
+    EmailAddr::<Buffer, Relax>::parse_with_options("user@example.com", three_labels).is_err()
+  );
+  assert!(
+    EmailAddr::<Buffer, Relax>::parse_with_options("user@mail.example.com", three_labels).is_ok()
+  );
+}
+
+#[test]
+fn supports_parse_options_for_smtp_utf8_local_parts() {
+  let input = "用户@example.com";
+  let allowed = EmailAddr::<Buffer, Relax>::parse_with_options(input, Options::new()).unwrap();
+  assert_eq!(allowed.local_part(), "用户");
+
+  let forbidden =
+    Options::new().with_local(LocalOptions::new().with_smtp_utf8(SmtpUtf8Policy::Forbid));
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options(input, forbidden).is_err());
+  assert!(verify_email_addr_with_options(input.as_bytes(), forbidden).is_err());
+}
+
+#[test]
+fn supports_parse_options_for_non_standard_utf8_domains() {
+  let input = "👋@💌.kz";
+  let default = EmailAddr::<Buffer, Relax>::parse_with_options(input, Options::new());
+  #[cfg(any(feature = "alloc", feature = "std"))]
+  assert_ne!(default.unwrap().as_str(), input);
+  #[cfg(not(any(feature = "alloc", feature = "std")))]
+  assert!(default.is_err());
+
+  let options = Options::new()
+    .with_domain(DomainOptions::new().with_unicode(DomainUnicodePolicy::NonStandardUtf8));
+  let addr = EmailAddr::<Buffer, Relax>::parse_with_options(input, options).unwrap();
+  assert_eq!(addr.as_str(), input);
+  assert_eq!(addr.local_part(), "👋");
+  assert_eq!(addr.domain_part(), "💌.kz");
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options("user@xn--55555577.💌", options).is_err());
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options("user@xn--é.example", options).is_err());
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options("user@ab--é.example", options).is_err());
+  assert!(
+    EmailAddr::<Buffer, Relax>::parse_with_options("user@é.123.xn--9dbne9b", options).is_err()
+  );
+
+  let ascii_only =
+    Options::new().with_domain(DomainOptions::new().with_unicode(DomainUnicodePolicy::AsciiOnly));
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options("user@测试.中国", ascii_only).is_err());
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -567,6 +649,38 @@ fn enforces_length_limits() {
   let long_utf8 = format!("{}@example.com", "用".repeat(90));
   assert!(long_utf8.len() > MAX_EMAIL_ADDR_LENGTH);
   assert!(EmailAddr::<String>::try_from(long_utf8).is_err());
+}
+
+#[test]
+fn supports_parse_options_for_long_local_parts() {
+  let input = "reply+2a907e&3uofr1&&99cd5c22c2ca5b23655799316a8d8eb2dd83c3c487612cb9b9a00bf13f13afe2@mg1.substack.com";
+  assert!(EmailAddr::<Buffer, Relax>::parse_with_options(input, Options::new()).is_err());
+
+  let options = Options::new().with_limits(Limits::new().with_max_local_part_len(128));
+  let addr: EmailAddr<Buffer, Relax> =
+    EmailAddr::<Buffer, Relax>::parse_with_options(input, options).unwrap();
+  assert_eq!(
+    addr.local_part(),
+    "reply+2a907e&3uofr1&&99cd5c22c2ca5b23655799316a8d8eb2dd83c3c487612cb9b9a00bf13f13afe2"
+  );
+  assert_eq!(addr.domain_part(), "mg1.substack.com");
+  assert!(LocalPart::try_from_str(addr.local_part()).is_err());
+
+  #[cfg(any(feature = "alloc", feature = "std"))]
+  {
+    let string = EmailAddr::<String, Relax>::parse_with_options(input, options).unwrap();
+    assert_eq!(string.as_str(), input);
+  }
+}
+
+#[test]
+fn parse_options_do_not_launder_relaxed_values_as_strict_parts() {
+  let options = Options::new()
+    .with_domain(DomainOptions::new().with_unicode(DomainUnicodePolicy::NonStandardUtf8));
+  let addr = EmailAddr::<Buffer, Relax>::parse_with_options("👋@💌.kz", options).unwrap();
+
+  assert_eq!(addr.parts(), ("👋", "💌.kz"));
+  assert!(DomainPart::try_from_ascii_str(addr.domain_part()).is_err());
 }
 
 #[cfg(feature = "serde")]

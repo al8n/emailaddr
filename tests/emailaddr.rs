@@ -689,6 +689,802 @@ fn supports_serde_core_for_stack_storage() {
   assert_serde::<EmailAddr<Buffer>>();
   assert_serialize::<LocalPart<&str>>();
   assert_serialize::<DomainPart<&str>>();
+  assert_serde::<Options>();
+  assert_serde::<LocalOptions>();
+  assert_serde::<DomainOptions>();
+  assert_serde::<Limits>();
+  assert_serde::<SmtpUtf8Policy>();
+  assert_serde::<DomainLiteralPolicy>();
+  assert_serde::<DomainUnicodePolicy>();
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn supports_serde_core_for_options() {
+  use core::fmt;
+
+  use serde_core::{
+    de::{
+      value::{Error as DeError, MapDeserializer, StrDeserializer},
+      DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor,
+    },
+    ser::{Error as SerErrorTrait, Impossible, SerializeStruct},
+    Deserialize, Serialize, Serializer,
+  };
+  use std::{string::String, vec::Vec};
+
+  #[derive(Debug, PartialEq, Eq)]
+  enum Token {
+    Str(String),
+    U8(u8),
+    U64(u64),
+    Struct {
+      name: &'static str,
+      fields: Vec<(&'static str, Token)>,
+    },
+  }
+
+  #[derive(Debug)]
+  struct SerError(String);
+
+  impl fmt::Display for SerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      f.write_str(&self.0)
+    }
+  }
+
+  impl std::error::Error for SerError {}
+
+  impl SerErrorTrait for SerError {
+    fn custom<T>(msg: T) -> Self
+    where
+      T: fmt::Display,
+    {
+      Self(msg.to_string())
+    }
+  }
+
+  struct TokenSerializer {
+    human: bool,
+  }
+
+  struct TokenStructSerializer {
+    human: bool,
+    name: &'static str,
+    fields: Vec<(&'static str, Token)>,
+  }
+
+  macro_rules! reject_serialize {
+    ($($name:ident($($arg:ident: $ty:ty),*) -> $ret:ty;)*) => {
+      $(
+        fn $name(self, $($arg: $ty),*) -> Result<$ret, Self::Error> {
+          let _ = ($($arg),*);
+          Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+        }
+      )*
+    };
+  }
+
+  impl Serializer for TokenSerializer {
+    type Ok = Token;
+    type Error = SerError;
+    type SerializeSeq = Impossible<Token, SerError>;
+    type SerializeTuple = Impossible<Token, SerError>;
+    type SerializeTupleStruct = Impossible<Token, SerError>;
+    type SerializeTupleVariant = Impossible<Token, SerError>;
+    type SerializeMap = Impossible<Token, SerError>;
+    type SerializeStruct = TokenStructSerializer;
+    type SerializeStructVariant = Impossible<Token, SerError>;
+
+    fn is_human_readable(&self) -> bool {
+      self.human
+    }
+
+    fn serialize_str(self, value: &str) -> Result<Self::Ok, Self::Error> {
+      Ok(Token::Str(value.to_owned()))
+    }
+
+    fn serialize_u8(self, value: u8) -> Result<Self::Ok, Self::Error> {
+      Ok(Token::U8(value))
+    }
+
+    fn serialize_u64(self, value: u64) -> Result<Self::Ok, Self::Error> {
+      Ok(Token::U64(value))
+    }
+
+    fn serialize_struct(
+      self,
+      name: &'static str,
+      len: usize,
+    ) -> Result<Self::SerializeStruct, Self::Error> {
+      Ok(TokenStructSerializer {
+        human: self.human,
+        name,
+        fields: Vec::with_capacity(len),
+      })
+    }
+
+    fn collect_str<T>(self, value: &T) -> Result<Self::Ok, Self::Error>
+    where
+      T: ?Sized + fmt::Display,
+    {
+      Ok(Token::Str(value.to_string()))
+    }
+
+    reject_serialize! {
+      serialize_bool(value: bool) -> Token;
+      serialize_i8(value: i8) -> Token;
+      serialize_i16(value: i16) -> Token;
+      serialize_i32(value: i32) -> Token;
+      serialize_i64(value: i64) -> Token;
+      serialize_u16(value: u16) -> Token;
+      serialize_u32(value: u32) -> Token;
+      serialize_f32(value: f32) -> Token;
+      serialize_f64(value: f64) -> Token;
+      serialize_char(value: char) -> Token;
+      serialize_bytes(value: &[u8]) -> Token;
+    }
+
+    fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_some<T>(self, _value: &T) -> Result<Self::Ok, Self::Error>
+    where
+      T: ?Sized + Serialize,
+    {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_unit_variant(
+      self,
+      _name: &'static str,
+      _variant_index: u32,
+      _variant: &'static str,
+    ) -> Result<Self::Ok, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_newtype_struct<T>(
+      self,
+      _name: &'static str,
+      _value: &T,
+    ) -> Result<Self::Ok, Self::Error>
+    where
+      T: ?Sized + Serialize,
+    {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_newtype_variant<T>(
+      self,
+      _name: &'static str,
+      _variant_index: u32,
+      _variant: &'static str,
+      _value: &T,
+    ) -> Result<Self::Ok, Self::Error>
+    where
+      T: ?Sized + Serialize,
+    {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_seq(self, _len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_tuple(self, _len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_tuple_struct(
+      self,
+      _name: &'static str,
+      _len: usize,
+    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_tuple_variant(
+      self,
+      _name: &'static str,
+      _variant_index: u32,
+      _variant: &'static str,
+      _len: usize,
+    ) -> Result<Self::SerializeTupleVariant, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+
+    fn serialize_struct_variant(
+      self,
+      _name: &'static str,
+      _variant_index: u32,
+      _variant: &'static str,
+      _len: usize,
+    ) -> Result<Self::SerializeStructVariant, Self::Error> {
+      Err(<Self::Error as SerErrorTrait>::custom("unsupported token"))
+    }
+  }
+
+  impl SerializeStruct for TokenStructSerializer {
+    type Ok = Token;
+    type Error = SerError;
+
+    fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
+    where
+      T: ?Sized + Serialize,
+    {
+      let value = value.serialize(TokenSerializer { human: self.human })?;
+      self.fields.push((key, value));
+      Ok(())
+    }
+
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+      Ok(Token::Struct {
+        name: self.name,
+        fields: self.fields,
+      })
+    }
+  }
+
+  struct BinaryU8Deserializer(u8);
+
+  impl<'de> Deserializer<'de> for BinaryU8Deserializer {
+    type Error = DeError;
+
+    fn is_human_readable(&self) -> bool {
+      false
+    }
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_u8(self.0)
+    }
+
+    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_u8(self.0)
+    }
+
+    serde_core::forward_to_deserialize_any! {
+      bool i8 i16 i32 i64 u16 u32 u64 f32 f64 char str string bytes byte_buf
+      option unit unit_struct newtype_struct seq tuple tuple_struct map struct
+      enum identifier ignored_any
+    }
+  }
+
+  struct BinaryU64Deserializer(u64);
+
+  impl<'de> Deserializer<'de> for BinaryU64Deserializer {
+    type Error = DeError;
+
+    fn is_human_readable(&self) -> bool {
+      false
+    }
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_u64(self.0)
+    }
+
+    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_u64(self.0)
+    }
+
+    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_u64(self.0)
+    }
+
+    serde_core::forward_to_deserialize_any! {
+      bool i8 i16 i32 i64 u16 u32 f32 f64 char str string bytes byte_buf
+      option unit unit_struct newtype_struct seq tuple tuple_struct map struct
+      enum identifier ignored_any
+    }
+  }
+
+  struct HumanBytesDeserializer<'a>(&'a [u8]);
+
+  impl<'de> Deserializer<'de> for HumanBytesDeserializer<'_> {
+    type Error = DeError;
+
+    fn is_human_readable(&self) -> bool {
+      true
+    }
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_bytes(self.0)
+    }
+
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_bytes(self.0)
+    }
+
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      visitor.visit_bytes(self.0)
+    }
+
+    serde_core::forward_to_deserialize_any! {
+      bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char string byte_buf
+      option unit unit_struct newtype_struct seq tuple tuple_struct map struct
+      enum identifier ignored_any
+    }
+  }
+
+  enum BinaryValue {
+    U8(u8),
+    U64(u64),
+    Map(Vec<(&'static str, BinaryValue)>),
+    Seq(Vec<BinaryValue>),
+  }
+
+  struct BinaryMapAccess {
+    entries: std::vec::IntoIter<(&'static str, BinaryValue)>,
+    value: Option<BinaryValue>,
+  }
+
+  impl<'de> MapAccess<'de> for BinaryMapAccess {
+    type Error = DeError;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
+    where
+      K: DeserializeSeed<'de>,
+    {
+      let Some((key, value)) = self.entries.next() else {
+        return Ok(None);
+      };
+      self.value = Some(value);
+      seed
+        .deserialize(StrDeserializer::<DeError>::new(key))
+        .map(Some)
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+    where
+      V: DeserializeSeed<'de>,
+    {
+      seed.deserialize(self.value.take().expect("map value follows map key"))
+    }
+  }
+
+  struct BinarySeqAccess {
+    values: std::vec::IntoIter<BinaryValue>,
+  }
+
+  impl<'de> SeqAccess<'de> for BinarySeqAccess {
+    type Error = DeError;
+
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+      T: DeserializeSeed<'de>,
+    {
+      self
+        .values
+        .next()
+        .map(|value| seed.deserialize(value))
+        .transpose()
+    }
+  }
+
+  impl<'de> Deserializer<'de> for BinaryValue {
+    type Error = DeError;
+
+    fn is_human_readable(&self) -> bool {
+      false
+    }
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      match self {
+        Self::U8(value) => visitor.visit_u8(value),
+        Self::U64(value) => visitor.visit_u64(value),
+        Self::Map(entries) => visitor.visit_map(BinaryMapAccess {
+          entries: entries.into_iter(),
+          value: None,
+        }),
+        Self::Seq(values) => visitor.visit_seq(BinarySeqAccess {
+          values: values.into_iter(),
+        }),
+      }
+    }
+
+    fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      self.deserialize_any(visitor)
+    }
+
+    fn deserialize_u64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      self.deserialize_any(visitor)
+    }
+
+    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      self.deserialize_any(visitor)
+    }
+
+    fn deserialize_struct<V>(
+      self,
+      _name: &'static str,
+      _fields: &'static [&'static str],
+      visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+      V: Visitor<'de>,
+    {
+      self.deserialize_any(visitor)
+    }
+
+    serde_core::forward_to_deserialize_any! {
+      bool i8 i16 i32 i64 u16 u32 f32 f64 char str string bytes byte_buf
+      option unit unit_struct newtype_struct seq tuple tuple_struct enum
+      identifier ignored_any
+    }
+  }
+
+  fn binary_local() -> BinaryValue {
+    BinaryValue::Map(vec![("smtp_utf8", BinaryValue::U8(1))])
+  }
+
+  fn binary_domain() -> BinaryValue {
+    BinaryValue::Map(vec![
+      ("minimum_dns_labels", BinaryValue::U64(2)),
+      ("literals", BinaryValue::U8(0)),
+      ("unicode", BinaryValue::U8(2)),
+    ])
+  }
+
+  fn binary_limits() -> BinaryValue {
+    BinaryValue::Map(vec![("max_local_part_len", BinaryValue::U64(128))])
+  }
+
+  assert_eq!(
+    SmtpUtf8Policy::Forbid
+      .serialize(TokenSerializer { human: true })
+      .unwrap(),
+    Token::Str("forbid".to_owned())
+  );
+  assert_eq!(
+    SmtpUtf8Policy::Allow
+      .serialize(TokenSerializer { human: false })
+      .unwrap(),
+    Token::U8(0)
+  );
+  assert_eq!(
+    DomainLiteralPolicy::Forbid
+      .serialize(TokenSerializer { human: false })
+      .unwrap(),
+    Token::U8(1)
+  );
+  assert_eq!(
+    DomainUnicodePolicy::NonStandardUtf8
+      .serialize(TokenSerializer { human: true })
+      .unwrap(),
+    Token::Str("raw".to_owned())
+  );
+  assert_eq!(
+    DomainUnicodePolicy::NonStandardUtf8
+      .serialize(TokenSerializer { human: false })
+      .unwrap(),
+    Token::U8(2)
+  );
+
+  let human = DomainUnicodePolicy::deserialize(StrDeserializer::<DeError>::new("ascii")).unwrap();
+  assert_eq!(human, DomainUnicodePolicy::AsciiOnly);
+  let human_alias =
+    DomainUnicodePolicy::deserialize(StrDeserializer::<DeError>::new("ascii_only")).unwrap();
+  assert_eq!(human_alias, DomainUnicodePolicy::AsciiOnly);
+  let raw_alias =
+    DomainUnicodePolicy::deserialize(StrDeserializer::<DeError>::new("non_standard_utf8")).unwrap();
+  assert_eq!(raw_alias, DomainUnicodePolicy::NonStandardUtf8);
+  let binary = DomainUnicodePolicy::deserialize(BinaryU8Deserializer(1)).unwrap();
+  assert_eq!(binary, DomainUnicodePolicy::Idna);
+  let smtp_binary = SmtpUtf8Policy::deserialize(BinaryU64Deserializer(1)).unwrap();
+  assert_eq!(smtp_binary, SmtpUtf8Policy::Forbid);
+  let literal_bytes = DomainLiteralPolicy::deserialize(HumanBytesDeserializer(b"forbid")).unwrap();
+  assert_eq!(literal_bytes, DomainLiteralPolicy::Forbid);
+  assert!(DomainLiteralPolicy::deserialize(HumanBytesDeserializer(b"\xff")).is_err());
+  assert!(DomainUnicodePolicy::deserialize(BinaryU64Deserializer(300)).is_err());
+  assert!(DomainLiteralPolicy::deserialize(BinaryU8Deserializer(9)).is_err());
+
+  let options = Options::new()
+    .with_local(LocalOptions::new().with_smtp_utf8(SmtpUtf8Policy::Forbid))
+    .with_domain(
+      DomainOptions::new()
+        .with_minimum_dns_labels(2)
+        .with_unicode(DomainUnicodePolicy::NonStandardUtf8),
+    )
+    .with_limits(Limits::new().with_max_local_part_len(128));
+  let token = options.serialize(TokenSerializer { human: true }).unwrap();
+  assert!(matches!(
+    token,
+    Token::Struct {
+      name: "Options",
+      ..
+    }
+  ));
+
+  let options_binary = bincode::serialize(&options).unwrap();
+  assert_eq!(
+    bincode::deserialize::<Options>(&options_binary).unwrap(),
+    options
+  );
+  let local_binary = bincode::serialize(&options.local()).unwrap();
+  assert_eq!(
+    bincode::deserialize::<LocalOptions>(&local_binary).unwrap(),
+    options.local()
+  );
+  let domain_binary = bincode::serialize(&options.domain()).unwrap();
+  assert_eq!(
+    bincode::deserialize::<DomainOptions>(&domain_binary).unwrap(),
+    options.domain()
+  );
+  let limits_binary = bincode::serialize(&options.limits()).unwrap();
+  assert_eq!(
+    bincode::deserialize::<Limits>(&limits_binary).unwrap(),
+    options.limits()
+  );
+  let sequence_options = Options::deserialize(BinaryValue::Seq(vec![
+    BinaryValue::Seq(vec![BinaryValue::U8(1)]),
+    BinaryValue::Seq(vec![
+      BinaryValue::U64(2),
+      BinaryValue::U8(0),
+      BinaryValue::U8(2),
+    ]),
+    BinaryValue::Seq(vec![BinaryValue::U64(128)]),
+  ]))
+  .unwrap();
+  assert_eq!(sequence_options, options);
+  assert!(Options::deserialize(BinaryValue::Seq(vec![])).is_err());
+  assert!(
+    Options::deserialize(BinaryValue::Seq(vec![BinaryValue::Seq(vec![
+      BinaryValue::U8(1)
+    ])]))
+    .is_err()
+  );
+  assert!(LocalOptions::deserialize(BinaryValue::Seq(vec![])).is_err());
+  assert!(DomainOptions::deserialize(BinaryValue::Seq(vec![BinaryValue::U64(2)])).is_err());
+  assert!(DomainOptions::deserialize(BinaryValue::Seq(vec![
+    BinaryValue::U64(2),
+    BinaryValue::U8(0)
+  ]))
+  .is_err());
+  assert!(Limits::deserialize(BinaryValue::Seq(vec![])).is_err());
+  let map_options = Options::deserialize(BinaryValue::Map(vec![
+    ("local", binary_local()),
+    ("domain", binary_domain()),
+    ("limits", binary_limits()),
+  ]))
+  .unwrap();
+  assert_eq!(map_options, options);
+  assert_eq!(
+    LocalOptions::deserialize(binary_local()).unwrap(),
+    options.local()
+  );
+  assert_eq!(
+    DomainOptions::deserialize(binary_domain()).unwrap(),
+    options.domain()
+  );
+  assert_eq!(
+    Limits::deserialize(binary_limits()).unwrap(),
+    options.limits()
+  );
+  assert!(Options::deserialize(BinaryValue::Map(vec![])).is_err());
+  assert!(Options::deserialize(BinaryValue::Map(vec![("local", binary_local())])).is_err());
+  assert!(LocalOptions::deserialize(BinaryValue::Map(vec![])).is_err());
+  assert!(DomainOptions::deserialize(BinaryValue::Map(vec![
+    ("minimum_dns_labels", BinaryValue::U64(2)),
+    ("literals", BinaryValue::U8(0)),
+  ]))
+  .is_err());
+  assert!(Limits::deserialize(BinaryValue::Map(vec![])).is_err());
+
+  let empty = core::iter::empty::<(&str, StrDeserializer<'_, DeError>)>();
+  let default_options = Options::deserialize(MapDeserializer::new(empty)).unwrap();
+  assert_eq!(default_options, Options::new());
+
+  let domain = DomainOptions::deserialize(MapDeserializer::new(
+    [("unicode", StrDeserializer::<DeError>::new("raw"))].into_iter(),
+  ))
+  .unwrap();
+  assert_eq!(domain.minimum_dns_labels(), 1);
+  assert_eq!(domain.literals(), DomainLiteralPolicy::Allow);
+  assert_eq!(domain.unicode(), DomainUnicodePolicy::NonStandardUtf8);
+
+  let default_local = LocalOptions::deserialize(MapDeserializer::new(core::iter::empty::<(
+    &str,
+    StrDeserializer<'_, DeError>,
+  )>()))
+  .unwrap();
+  assert_eq!(default_local, LocalOptions::new());
+  let default_limits = Limits::deserialize(MapDeserializer::new(core::iter::empty::<(
+    &str,
+    StrDeserializer<'_, DeError>,
+  )>()))
+  .unwrap();
+  assert_eq!(default_limits, Limits::new());
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn supports_human_readable_config_formats_for_options() {
+  let options = Options::new()
+    .with_local(LocalOptions::new().with_smtp_utf8(SmtpUtf8Policy::Forbid))
+    .with_domain(
+      DomainOptions::new()
+        .with_minimum_dns_labels(2)
+        .with_literals(DomainLiteralPolicy::Forbid)
+        .with_unicode(DomainUnicodePolicy::NonStandardUtf8),
+    )
+    .with_limits(Limits::new().with_max_local_part_len(128));
+
+  let json = serde_json::to_string(&options).unwrap();
+  assert!(json.contains("\"smtp_utf8\":\"forbid\""));
+  assert!(json.contains("\"unicode\":\"raw\""));
+  assert_eq!(serde_json::from_str::<Options>(&json).unwrap(), options);
+  assert_eq!(
+    serde_json::from_str::<DomainOptions>(r#"{"unicode":"non_standard_utf8"}"#)
+      .unwrap()
+      .unicode(),
+    DomainUnicodePolicy::NonStandardUtf8
+  );
+
+  let toml_doc = toml::to_string(&options).unwrap();
+  assert!(toml_doc.contains("smtp_utf8 = \"forbid\""));
+  assert!(toml_doc.contains("unicode = \"raw\""));
+  assert_eq!(toml::from_str::<Options>(&toml_doc).unwrap(), options);
+  assert_eq!(
+    toml::from_str::<DomainOptions>("unicode = \"ascii_only\"")
+      .unwrap()
+      .unicode(),
+    DomainUnicodePolicy::AsciiOnly
+  );
+
+  let yaml = yaml_serde::to_string(&options).unwrap();
+  assert!(yaml.contains("smtp_utf8: forbid"));
+  assert!(yaml.contains("unicode: raw"));
+  assert_eq!(yaml_serde::from_str::<Options>(&yaml).unwrap(), options);
+  assert_eq!(
+    yaml_serde::from_str::<DomainOptions>("unicode: raw_utf8")
+      .unwrap()
+      .unicode(),
+    DomainUnicodePolicy::NonStandardUtf8
+  );
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn rejects_invalid_options_config_fields() {
+  for input in [
+    "[]",
+    r#"{"unknown":{}}"#,
+    r#"{"local":{},"local":{}}"#,
+    r#"{"domain":{},"domain":{}}"#,
+    r#"{"limits":{},"limits":{}}"#,
+  ] {
+    assert!(serde_json::from_str::<Options>(input).is_err(), "{input}");
+  }
+
+  for input in [
+    "[]",
+    r#"{"unknown":"allow"}"#,
+    r#"{"smtp_utf8":"allow","smtp_utf8":"forbid"}"#,
+  ] {
+    assert!(
+      serde_json::from_str::<LocalOptions>(input).is_err(),
+      "{input}"
+    );
+  }
+
+  for input in [
+    "[]",
+    r#"{"unknown":"allow"}"#,
+    r#"{"minimum_dns_labels":1,"minimum_dns_labels":2}"#,
+    r#"{"literals":"allow","literals":"forbid"}"#,
+    r#"{"unicode":"idna","unicode":"raw"}"#,
+  ] {
+    assert!(
+      serde_json::from_str::<DomainOptions>(input).is_err(),
+      "{input}"
+    );
+  }
+
+  for input in [
+    "[]",
+    r#"{"unknown":64}"#,
+    r#"{"max_local_part_len":64,"max_local_part_len":128}"#,
+  ] {
+    assert!(serde_json::from_str::<Limits>(input).is_err(), "{input}");
+  }
+}
+
+#[cfg(feature = "clap")]
+#[test]
+fn supports_clap_for_options() {
+  use clap::Parser;
+
+  #[derive(Debug, Parser)]
+  struct Cli {
+    #[command(flatten)]
+    options: Options,
+  }
+
+  let default = Cli::try_parse_from(["emailaddr-test"]).unwrap();
+  assert_eq!(default.options, Options::new());
+
+  let cli = Cli::try_parse_from([
+    "emailaddr-test",
+    "--email-local-smtp-utf8",
+    "forbid",
+    "--email-domain-minimum-dns-labels",
+    "2",
+    "--email-domain-literals",
+    "forbid",
+    "--email-domain-unicode",
+    "raw",
+    "--email-limits-max-local-part-len",
+    "128",
+  ])
+  .unwrap();
+  assert_eq!(cli.options.local().smtp_utf8(), SmtpUtf8Policy::Forbid);
+  assert_eq!(cli.options.domain().minimum_dns_labels(), 2);
+  assert_eq!(cli.options.domain().literals(), DomainLiteralPolicy::Forbid);
+  assert_eq!(
+    cli.options.domain().unicode(),
+    DomainUnicodePolicy::NonStandardUtf8
+  );
+  assert_eq!(cli.options.limits().max_local_part_len(), 128);
+
+  let alias_cli = Cli::try_parse_from([
+    "emailaddr-test",
+    "--email-domain-unicode",
+    "non_standard_utf8",
+  ])
+  .unwrap();
+  assert_eq!(
+    alias_cli.options.domain().unicode(),
+    DomainUnicodePolicy::NonStandardUtf8
+  );
 }
 
 #[cfg(feature = "serde")]

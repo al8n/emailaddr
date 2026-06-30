@@ -62,14 +62,11 @@ fn covers_options_and_error_accessors() {
   assert_eq!(DomainLiteralPolicy::Forbid.as_str(), "forbid");
   assert!(DomainLiteralPolicy::Forbid.is_forbid());
 
-  assert_eq!(DomainUnicodePolicy::AsciiOnly.as_str(), "ascii_only");
+  assert_eq!(DomainUnicodePolicy::AsciiOnly.as_str(), "ascii");
   assert!(DomainUnicodePolicy::AsciiOnly.is_ascii_only());
   assert_eq!(DomainUnicodePolicy::Idna.as_str(), "idna");
   assert!(DomainUnicodePolicy::Idna.is_idna());
-  assert_eq!(
-    DomainUnicodePolicy::NonStandardUtf8.as_str(),
-    "non_standard_utf8"
-  );
+  assert_eq!(DomainUnicodePolicy::NonStandardUtf8.as_str(), "raw");
   assert!(DomainUnicodePolicy::NonStandardUtf8.is_non_standard_utf8());
 
   let address_err = EmailAddr::try_from_ascii_str("missing-at").unwrap_err();

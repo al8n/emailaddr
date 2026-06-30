@@ -7,11 +7,12 @@ homepage = "https://github.com/al8n/emailaddr"
 documentation = "https://docs.rs/emailaddr"
 description = "Type-safe, validated email addresses with generic storage, IDNA domain support, and no_std/no-alloc compatibility."
 license = "MIT OR Apache-2.0"
-rust-version = "1.83"
+rust-version = "1.86"
 
 [features]
 default = ["std"]
 alloc = ["idna/alloc", "idna/compiled_data"]
+serde = ["dep:serde_core"]
 std = ["idna/default", "thiserror/default"]
 loom = []
 tarpaulin = []
@@ -19,6 +20,7 @@ tarpaulin = []
 [dependencies]
 either = { version = "1", default-features = false }
 idna = { version = "1", default-features = false, optional = true }
+serde_core = { version = "1", default-features = false, features = ["result"], optional = true }
 thiserror = { version = "2", default-features = false }
 
 [profile.bench]

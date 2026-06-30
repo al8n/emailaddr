@@ -133,8 +133,10 @@ impl<'a> DomainPart<&'a [u8]> {
 /// Verifies that `input` is a valid ASCII email domain-part.
 ///
 /// DNS names are validated as RFC 5321 `Domain` values: dot-separated LDH
-/// labels without a trailing root dot. Address literals accept bracketed IPv4,
-/// bracketed IPv6, and syntactically valid general address literal forms.
+/// labels without a trailing root dot. DNS A-labels are IDNA-validated when
+/// `alloc` or `std` is enabled and rejected otherwise. Address literals accept
+/// bracketed IPv4, bracketed IPv6, and syntactically valid general address
+/// literal forms.
 pub fn verify_ascii_domain_part(input: &[u8]) -> Result<(), ParseDomainPartError> {
   if input.is_empty() || !input.is_ascii() {
     return Err(ParseDomainPartError(()));
@@ -148,7 +150,15 @@ pub fn verify_ascii_domain_part(input: &[u8]) -> Result<(), ParseDomainPartError
 }
 
 /// Verifies that `input` is a valid ASCII DNS domain name.
-pub const fn verify_ascii_dns_domain(input: &[u8]) -> Result<(), ParseDomainPartError> {
+///
+/// DNS A-labels are IDNA-validated when `alloc` or `std` is enabled and
+/// rejected otherwise.
+pub fn verify_ascii_dns_domain(input: &[u8]) -> Result<(), ParseDomainPartError> {
+  verify_ascii_dns_domain_syntax(input)?;
+  verify_ascii_dns_domain_alabel_policy(input)
+}
+
+const fn verify_ascii_dns_domain_syntax(input: &[u8]) -> Result<(), ParseDomainPartError> {
   const MAX_LABEL_LENGTH: usize = 63;
 
   let len = input.len();
@@ -195,6 +205,42 @@ pub const fn verify_ascii_dns_domain(input: &[u8]) -> Result<(), ParseDomainPart
   }
 
   Ok(())
+}
+
+pub(crate) fn contains_ascii_alabel(input: &[u8]) -> bool {
+  if input.starts_with(b"[") {
+    return false;
+  }
+
+  for label in input.split(|byte| *byte == b'.') {
+    if is_ascii_alabel(label) {
+      return true;
+    }
+  }
+
+  false
+}
+
+fn is_ascii_alabel(label: &[u8]) -> bool {
+  label.len() >= 4 && label[..4].eq_ignore_ascii_case(b"xn--")
+}
+
+fn verify_ascii_dns_domain_alabel_policy(input: &[u8]) -> Result<(), ParseDomainPartError> {
+  if !contains_ascii_alabel(input) {
+    return Ok(());
+  }
+
+  #[cfg(any(feature = "alloc", feature = "std"))]
+  {
+    let mut normalized = Buffer::new();
+    domain_to_ascii(input, &mut normalized)?;
+    verify_ascii_dns_domain_syntax(normalized.as_bytes())
+  }
+
+  #[cfg(not(any(feature = "alloc", feature = "std")))]
+  {
+    Err(ParseDomainPartError(()))
+  }
 }
 
 const fn is_ascii_alnum(byte: u8) -> bool {
@@ -261,7 +307,8 @@ fn verify_domain_literal(input: &[u8]) -> Result<(), ParseDomainPartError> {
   }
 
   let literal = str::from_utf8(&input[1..input.len() - 1]).map_err(|_| ParseDomainPartError(()))?;
-  if let Some(ipv6) = literal.strip_prefix("IPv6:") {
+  if literal.len() >= 5 && literal.as_bytes()[..5].eq_ignore_ascii_case(b"IPv6:") {
+    let ipv6 = &literal[5..];
     Ipv6Addr::from_str(ipv6)
       .map(|_| ())
       .map_err(|_| ParseDomainPartError(()))
@@ -285,7 +332,7 @@ pub(crate) fn write_normalized_domain_part(
   input: &[u8],
   output: &mut Buffer,
 ) -> Result<(), ParseDomainPartError> {
-  if input.is_ascii() {
+  if input.is_ascii() && !contains_ascii_alabel(input) {
     verify_ascii_domain_part(input)?;
     return output
       .extend_from_slice(input)
@@ -294,7 +341,7 @@ pub(crate) fn write_normalized_domain_part(
 
   let mut normalized = Buffer::new();
   domain_to_ascii(input, &mut normalized)?;
-  verify_ascii_dns_domain(normalized.as_bytes())?;
+  verify_ascii_dns_domain_syntax(normalized.as_bytes())?;
   output
     .extend_from_slice(normalized.as_bytes())
     .map_err(|_| ParseDomainPartError(()))
@@ -302,28 +349,68 @@ pub(crate) fn write_normalized_domain_part(
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn domain_to_ascii(input: &[u8], output: &mut Buffer) -> Result<(), ParseDomainPartError> {
-  use idna::{
-    uts46::{ErrorPolicy, Hyphens, ProcessingSuccess, Uts46},
-    AsciiDenyList,
-  };
+  let domain = str::from_utf8(input).map_err(|_| ParseDomainPartError(()))?;
+  let mut wrote_label = false;
 
-  let result = Uts46::new().process(
-    input,
-    AsciiDenyList::URL,
-    Hyphens::Allow,
-    ErrorPolicy::FailFast,
-    |_, _, _| false,
-    output,
-    None,
-  );
+  for label in domain.split(['.', '\u{3002}', '\u{ff0e}', '\u{ff61}']) {
+    if label.is_empty() {
+      return Err(ParseDomainPartError(()));
+    }
 
-  match result {
-    Ok(ProcessingSuccess::WroteToSink) => Ok(()),
-    Ok(ProcessingSuccess::Passthrough) => output
-      .extend_from_slice(input)
-      .map_err(|_| ParseDomainPartError(())),
-    Err(_) => Err(ParseDomainPartError(())),
+    if wrote_label {
+      output
+        .extend_from_slice(b".")
+        .map_err(|_| ParseDomainPartError(()))?;
+    }
+    write_normalized_dns_label(label.as_bytes(), output)?;
+    wrote_label = true;
   }
+
+  if !wrote_label {
+    return Err(ParseDomainPartError(()));
+  }
+
+  verify_ascii_dns_domain_syntax(output.as_bytes())?;
+  verify_normalized_idna_domain(output.as_bytes())
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn write_normalized_dns_label(
+  input: &[u8],
+  output: &mut Buffer,
+) -> Result<(), ParseDomainPartError> {
+  if input.is_ascii() && !is_ascii_alabel(input) {
+    verify_ascii_dns_domain_syntax(input)?;
+    return output
+      .extend_from_slice(input)
+      .map_err(|_| ParseDomainPartError(()));
+  }
+
+  let ascii = idna::uts46::Uts46::new()
+    .to_ascii(
+      input,
+      idna::uts46::AsciiDenyList::STD3,
+      idna::uts46::Hyphens::Check,
+      idna::uts46::DnsLength::Verify,
+    )
+    .map_err(|_| ParseDomainPartError(()))?;
+  verify_ascii_dns_domain_syntax(ascii.as_bytes())?;
+  output
+    .extend_from_slice(ascii.as_bytes())
+    .map_err(|_| ParseDomainPartError(()))
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn verify_normalized_idna_domain(input: &[u8]) -> Result<(), ParseDomainPartError> {
+  let ascii = idna::uts46::Uts46::new()
+    .to_ascii(
+      input,
+      idna::uts46::AsciiDenyList::STD3,
+      idna::uts46::Hyphens::CheckFirstLast,
+      idna::uts46::DnsLength::Verify,
+    )
+    .map_err(|_| ParseDomainPartError(()))?;
+  verify_ascii_dns_domain_syntax(ascii.as_bytes())
 }
 
 impl fmt::Write for Buffer {

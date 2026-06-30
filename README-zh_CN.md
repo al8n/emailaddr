@@ -26,6 +26,10 @@
 默认 `std` feature 支持 SMTPUTF8 local-part，并会把 Unicode domain-part
 规范化为 IDNA/punycode。`verify_ascii_*` 辅助函数仍保持严格 ASCII 验证。
 
+可选 `serde` feature 使用 `serde_core` 为已验证的地址值提供字符串序列化
+和反序列化支持；与 `alloc` 或 `std` 组合使用时，反序列化会执行 IDNA A-label
+验证。
+
 ## 安装
 
 ```toml

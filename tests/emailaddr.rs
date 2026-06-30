@@ -570,6 +570,28 @@ fn supports_serde_core_for_stack_storage() {
   assert_serialize::<DomainPart<&str>>();
 }
 
+#[cfg(feature = "serde")]
+#[test]
+fn supports_serde_core_for_custom_string_storage() {
+  struct CustomStr(&'static str);
+
+  impl AsRef<str> for CustomStr {
+    fn as_ref(&self) -> &str {
+      self.0
+    }
+  }
+
+  impl emailaddr::EmailAddrSerdeStorage for CustomStr {
+    fn as_valid_str(&self) -> &str {
+      self.as_ref()
+    }
+  }
+
+  assert_serialize::<EmailAddr<CustomStr>>();
+  assert_serialize::<LocalPart<CustomStr>>();
+  assert_serialize::<DomainPart<CustomStr>>();
+}
+
 #[cfg(all(feature = "serde", any(feature = "alloc", feature = "std")))]
 #[test]
 fn supports_serde_core_for_owned_storage() {

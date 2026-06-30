@@ -19,3 +19,5 @@ mod addr;
 mod buffer;
 mod domain;
 mod local;
+#[cfg(feature = "serde")]
+mod serde_impl;

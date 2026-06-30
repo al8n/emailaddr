@@ -17,6 +17,8 @@ use crate::{
   Buffer, DomainPart, LocalPart, ParseDomainPartError, ParseLocalPartError, MAX_LOCAL_PART_LENGTH,
 };
 
+use crate::domain::contains_ascii_alabel;
+
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::domain::write_normalized_domain_part;
 
@@ -183,11 +185,13 @@ impl<S> EmailAddr<&S> {
 impl<'a> EmailAddr<&'a str> {
   /// Validates an ASCII email address and returns borrowed storage.
   ///
-  /// This method does not perform IDNA normalization. Use `TryFrom<&str>` for
-  /// owned storage when Unicode domain names should be converted to punycode.
+  /// This method does not perform IDNA normalization. ASCII A-labels are
+  /// IDNA-validated when `alloc` or `std` is enabled and rejected otherwise.
+  /// Use `TryFrom<&str>` for owned storage when Unicode domain names should be
+  /// converted to punycode.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn try_from_ascii_str(input: &'a str) -> Result<Self, ParseEmailAddrError> {
-    verify_ascii_email_addr(input.as_bytes())?;
+    verify_borrowed_ascii_email_addr(input.as_bytes())?;
     Ok(Self(input))
   }
 
@@ -202,7 +206,7 @@ impl<'a> EmailAddr<&'a [u8]> {
   /// Validates an ASCII email address and returns borrowed bytes.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn try_from_ascii_bytes(input: &'a [u8]) -> Result<Self, ParseEmailAddrError> {
-    verify_ascii_email_addr(input)?;
+    verify_borrowed_ascii_email_addr(input)?;
     Ok(Self(input))
   }
 
@@ -257,6 +261,11 @@ impl TryFrom<&str> for EmailAddr<Buffer> {
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
       verify_ascii_email_addr(input.as_bytes())?;
+      let (_, domain) = split_email_addr(input.as_bytes())?;
+      if crate::domain::contains_ascii_alabel(domain) {
+        return Err(ParseEmailAddrError::DomainPart(ParseDomainPartError(())));
+      }
+
       Ok(Self(Buffer::copy_from_slice(input.as_bytes())))
     }
   }
@@ -278,6 +287,11 @@ impl TryFrom<&[u8]> for EmailAddr<Buffer> {
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
       verify_ascii_email_addr(input)?;
+      let (_, domain) = split_email_addr(input)?;
+      if crate::domain::contains_ascii_alabel(domain) {
+        return Err(ParseEmailAddrError::DomainPart(ParseDomainPartError(())));
+      }
+
       Ok(Self(Buffer::copy_from_slice(input)))
     }
   }
@@ -298,7 +312,10 @@ impl<S> EmailAddr<S> {
     let bytes = input.as_ref();
     if bytes.is_ascii() {
       verify_ascii_email_addr(bytes)?;
-      return Ok(Either::Left(Self(input)));
+      let (_, domain) = split_email_addr(bytes)?;
+      if !contains_ascii_alabel(domain) {
+        return Ok(Either::Left(Self(input)));
+      }
     }
 
     let mut output = Buffer::new();
@@ -319,7 +336,10 @@ impl<S> EmailAddr<S> {
     let bytes = input.as_ref().as_bytes();
     if bytes.is_ascii() {
       verify_ascii_email_addr(bytes)?;
-      return Ok(Either::Left(Self(input)));
+      let (_, domain) = split_email_addr(bytes)?;
+      if !contains_ascii_alabel(domain) {
+        return Ok(Either::Left(Self(input)));
+      }
     }
 
     let mut output = Buffer::new();
@@ -478,7 +498,11 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<Cow<'a, [u8]>> {
 #[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
 pub fn verify_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> {
   if input.is_ascii() {
-    return verify_ascii_email_addr(input);
+    verify_ascii_email_addr(input)?;
+    let (_, domain) = split_email_addr(input)?;
+    if !contains_ascii_alabel(domain) {
+      return Ok(());
+    }
   }
 
   let mut output = Buffer::new();
@@ -504,6 +528,25 @@ pub fn verify_ascii_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> 
   crate::verify_ascii_local_part(local)?;
   crate::verify_ascii_domain_part(domain)?;
   Ok(())
+}
+
+fn verify_borrowed_ascii_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> {
+  verify_ascii_email_addr(input)?;
+  let (_, domain) = split_email_addr(input)?;
+  if !contains_ascii_alabel(domain) {
+    return Ok(());
+  }
+
+  #[cfg(any(feature = "alloc", feature = "std"))]
+  {
+    let mut output = Buffer::new();
+    write_normalized_email_addr(input, &mut output)
+  }
+
+  #[cfg(not(any(feature = "alloc", feature = "std")))]
+  {
+    Err(ParseEmailAddrError::DomainPart(ParseDomainPartError(())))
+  }
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]

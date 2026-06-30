@@ -24,4 +24,6 @@ mod local;
 #[cfg(all(feature = "quickcheck", any(feature = "alloc", feature = "std")))]
 mod quickcheck_impl;
 #[cfg(feature = "serde")]
+pub use serde_impl::EmailAddrSerdeStorage;
+#[cfg(feature = "serde")]
 mod serde_impl;

@@ -26,6 +26,13 @@ where
 {
 }
 
+#[cfg(all(feature = "serde", any(feature = "alloc", feature = "std")))]
+fn assert_deserialize<'de, T>()
+where
+  T: serde_core::Deserialize<'de>,
+{
+}
+
 #[cfg(all(feature = "arbitrary", any(feature = "alloc", feature = "std")))]
 fn assert_arbitrary<'a, T>()
 where
@@ -598,10 +605,14 @@ fn supports_serde_core_for_owned_storage() {
   assert_serde::<EmailAddr<String>>();
   assert_serde::<EmailAddr<Vec<u8>>>();
   assert_serde::<EmailAddr<Box<str>>>();
+  assert_serde::<EmailAddr<Box<[u8]>>>();
   assert_serde::<EmailAddr<Rc<str>>>();
+  assert_serde::<EmailAddr<Rc<[u8]>>>();
   assert_serde::<EmailAddr<Arc<str>>>();
+  assert_serde::<EmailAddr<Arc<[u8]>>>();
   assert_serialize::<EmailAddr<Cow<'static, str>>>();
   assert_serialize::<EmailAddr<Cow<'static, [u8]>>>();
+  assert_deserialize::<'static, EmailAddr<Cow<'static, [u8]>>>();
 
   #[cfg(feature = "smol_str_0_3")]
   assert_serde::<EmailAddr<smol_str_0_3::SmolStr>>();
@@ -609,7 +620,7 @@ fn supports_serde_core_for_owned_storage() {
   #[cfg(feature = "triomphe_0_1")]
   {
     assert_serde::<EmailAddr<triomphe_0_1::Arc<str>>>();
-    assert_serialize::<EmailAddr<triomphe_0_1::Arc<[u8]>>>();
+    assert_serde::<EmailAddr<triomphe_0_1::Arc<[u8]>>>();
   }
 
   #[cfg(feature = "bytes_1")]
@@ -638,6 +649,12 @@ fn serde_deserialization_rejects_malformed_ascii_alabels() {
 
   let invalid_buffer = StrDeserializer::<Error>::new("user@xn--55555577.com");
   assert!(EmailAddr::<Buffer>::deserialize(invalid_buffer).is_err());
+
+  let valid_box_bytes = StrDeserializer::<Error>::new("user@example.com");
+  assert!(EmailAddr::<Box<[u8]>>::deserialize(valid_box_bytes).is_ok());
+
+  let valid_cow_bytes = StrDeserializer::<Error>::new("user@example.com");
+  assert!(EmailAddr::<Cow<'_, [u8]>>::deserialize(valid_cow_bytes).is_ok());
 
   let invalid_hyphen = StrDeserializer::<Error>::new("user@xn----bga.com");
   assert!(EmailAddr::<String>::deserialize(invalid_hyphen).is_err());

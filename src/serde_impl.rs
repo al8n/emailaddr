@@ -257,10 +257,13 @@ macro_rules! impl_email_addr_bytes_storage_deserialize {
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl_email_addr_bytes_storage_deserialize!(std::vec::Vec<u8>);
+impl_email_addr_bytes_storage_deserialize!(std::vec::Vec<u8>, Box<[u8]>, Rc<[u8]>, Arc<[u8]>,);
 
 #[cfg(feature = "bytes_1")]
 impl_email_addr_bytes_storage_deserialize!(bytes_1::Bytes);
+
+#[cfg(feature = "triomphe_0_1")]
+impl_email_addr_bytes_storage_deserialize!(triomphe_0_1::Arc<[u8]>);
 
 #[cfg(feature = "tinyvec_1")]
 const _: () = {
@@ -299,6 +302,17 @@ impl<'de> Deserialize<'de> for EmailAddr<Cow<'de, str>> {
   }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl<'de> Deserialize<'de> for EmailAddr<Cow<'de, [u8]>> {
+  #[inline]
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: Deserializer<'de>,
+  {
+    deserializer.deserialize_str(EmailAddrCowBytesVisitor)
+  }
+}
+
 struct EmailAddrVisitor<T>(PhantomData<fn() -> T>);
 
 impl<T> EmailAddrVisitor<T> {
@@ -330,6 +344,9 @@ where
 struct EmailAddrCowStrVisitor;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
+struct EmailAddrCowBytesVisitor;
+
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl<'de> Visitor<'de> for EmailAddrCowStrVisitor {
   type Value = EmailAddr<Cow<'de, str>>;
 
@@ -349,6 +366,31 @@ impl<'de> Visitor<'de> for EmailAddrCowStrVisitor {
     E: de::Error,
   {
     EmailAddr::<String>::try_from(value)
+      .map(|addr| EmailAddr(Cow::Owned(addr.into_inner())))
+      .map_err(E::custom)
+  }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl<'de> Visitor<'de> for EmailAddrCowBytesVisitor {
+  type Value = EmailAddr<Cow<'de, [u8]>>;
+
+  fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str("a valid email address string")
+  }
+
+  fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E>
+  where
+    E: de::Error,
+  {
+    EmailAddr::try_from(value).map_err(E::custom)
+  }
+
+  fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+  where
+    E: de::Error,
+  {
+    EmailAddr::<Vec<u8>>::try_from(value)
       .map(|addr| EmailAddr(Cow::Owned(addr.into_inner())))
       .map_err(E::custom)
   }

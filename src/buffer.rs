@@ -52,6 +52,69 @@ impl AsRef<[u8]> for Buffer {
   }
 }
 
+impl<'a> From<&'a Buffer> for &'a str {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn from(value: &'a Buffer) -> Self {
+    value.as_str()
+  }
+}
+
+impl<'a> From<&'a Buffer> for &'a [u8] {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn from(value: &'a Buffer) -> Self {
+    value.as_bytes()
+  }
+}
+
+#[cfg(feature = "smol_str_0_3")]
+impl From<Buffer> for smol_str_0_3::SmolStr {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn from(value: Buffer) -> Self {
+    value.as_str().into()
+  }
+}
+
+#[cfg(feature = "triomphe_0_1")]
+const _: () = {
+  impl From<Buffer> for triomphe_0_1::Arc<str> {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    fn from(value: Buffer) -> Self {
+      value.as_str().into()
+    }
+  }
+
+  impl From<Buffer> for triomphe_0_1::Arc<[u8]> {
+    #[cfg_attr(not(tarpaulin), inline(always))]
+    fn from(value: Buffer) -> Self {
+      value.as_bytes().into()
+    }
+  }
+};
+
+#[cfg(feature = "bytes_1")]
+impl From<Buffer> for bytes_1::Bytes {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn from(value: Buffer) -> Self {
+    Self::copy_from_slice(value.as_bytes())
+  }
+}
+
+#[cfg(feature = "tinyvec_1")]
+impl<const N: usize> From<Buffer> for tinyvec_1::TinyVec<[u8; N]> {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn from(value: Buffer) -> Self {
+    Self::from(value.as_bytes())
+  }
+}
+
+#[cfg(feature = "smallvec_1")]
+impl<const N: usize> From<Buffer> for smallvec_1::SmallVec<[u8; N]> {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn from(value: Buffer) -> Self {
+    Self::from_slice(value.as_bytes())
+  }
+}
+
 #[cfg(any(feature = "alloc", feature = "std"))]
 const _: () = {
   use std::{

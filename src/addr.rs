@@ -55,13 +55,15 @@ impl ParseEmailAddrError {
 /// A type-safe, validated email address.
 ///
 /// `EmailAddr<S>` stores the whole email address in the caller-selected storage
-/// type `S`. Borrowed storage such as `&str` is zero-copy. Owned storage such as
-/// `String`, `Arc<str>`, `Vec<u8>`, or [`Buffer`] is available through `TryFrom`
-/// and `FromStr` implementations.
+/// type `S`. Borrowed DST storage such as `EmailAddr<str>` and
+/// `EmailAddr<[u8]>` is zero-copy. Owned storage such as `String`, `Arc<str>`,
+/// `Vec<u8>`, or [`Buffer`] is available through `TryFrom` and `FromStr`
+/// implementations.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct EmailAddr<S>(pub(crate) S);
+#[repr(transparent)]
+pub struct EmailAddr<S: ?Sized = str>(pub(crate) S);
 
-impl<S> fmt::Display for EmailAddr<S>
+impl<S: ?Sized> fmt::Display for EmailAddr<S>
 where
   S: AsRef<str>,
 {
@@ -71,7 +73,7 @@ where
   }
 }
 
-impl<S> EmailAddr<S> {
+impl<S: ?Sized> EmailAddr<S> {
   /// Returns a reference to the inner storage.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn as_inner(&self) -> &S {
@@ -80,7 +82,10 @@ impl<S> EmailAddr<S> {
 
   /// Returns the inner storage.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_inner(self) -> S {
+  pub fn into_inner(self) -> S
+  where
+    S: Sized,
+  {
     self.0
   }
 
@@ -125,8 +130,9 @@ impl<S> EmailAddr<S> {
   {
     let input = self.0.as_ref();
     let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
-    LocalPart::try_from_str(&input[..at])
+    LocalPart::<str>::try_from_str(&input[..at])
       .expect("validated email addresses contain a valid local-part")
+      .as_ref()
   }
 
   /// Returns the validated domain-part.
@@ -137,8 +143,9 @@ impl<S> EmailAddr<S> {
   {
     let input = self.0.as_ref();
     let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
-    DomainPart::try_from_ascii_str(&input[at + 1..])
+    DomainPart::<str>::try_from_ascii_str(&input[at + 1..])
       .expect("validated email addresses contain a valid domain-part")
+      .as_ref()
   }
 
   /// Returns the local-part and domain-part as validated borrowed values.
@@ -148,6 +155,39 @@ impl<S> EmailAddr<S> {
     S: AsRef<str>,
   {
     (self.local_part(), self.domain_part())
+  }
+
+  /// Returns the validated local-part as a borrowed DST wrapper.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn local_part_ref(&self) -> &LocalPart<str>
+  where
+    S: AsRef<str>,
+  {
+    let input = self.0.as_ref();
+    let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
+    LocalPart::<str>::try_from_str(&input[..at])
+      .expect("validated email addresses contain a valid local-part")
+  }
+
+  /// Returns the validated domain-part as a borrowed DST wrapper.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn domain_part_ref(&self) -> &DomainPart<str>
+  where
+    S: AsRef<str>,
+  {
+    let input = self.0.as_ref();
+    let at = find_at(input.as_bytes()).expect("validated email addresses contain @");
+    DomainPart::<str>::try_from_ascii_str(&input[at + 1..])
+      .expect("validated email addresses contain a valid domain-part")
+  }
+
+  /// Returns the local-part and domain-part as borrowed DST wrappers.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn parts_ref(&self) -> (&LocalPart<str>, &DomainPart<str>)
+  where
+    S: AsRef<str>,
+  {
+    (self.local_part_ref(), self.domain_part_ref())
   }
 
   /// Returns `true` if the domain-part is an address literal.
@@ -160,9 +200,43 @@ impl<S> EmailAddr<S> {
     let at = find_at(bytes).expect("validated email addresses contain @");
     bytes[at + 1..].starts_with(b"[")
   }
+
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  const fn ref_cast(input: &S) -> &Self {
+    // SAFETY: EmailAddr<S> is #[repr(transparent)] over S, so references to
+    // S and EmailAddr<S> have the same layout and metadata, including for DSTs.
+    unsafe { &*(input as *const S as *const Self) }
+  }
 }
 
-impl<S> EmailAddr<&S> {
+impl<S: ?Sized> core::borrow::Borrow<S> for EmailAddr<S> {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn borrow(&self) -> &S {
+    &self.0
+  }
+}
+
+impl<S: ?Sized> AsRef<str> for EmailAddr<S>
+where
+  S: AsRef<str>,
+{
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn as_ref(&self) -> &str {
+    self.0.as_ref()
+  }
+}
+
+impl<S: ?Sized> AsRef<[u8]> for EmailAddr<S>
+where
+  S: AsRef<[u8]>,
+{
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn as_ref(&self) -> &[u8] {
+    self.0.as_ref()
+  }
+}
+
+impl<S: ?Sized> EmailAddr<&S> {
   /// Copies the referenced address storage.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn copied(self) -> EmailAddr<S>
@@ -182,19 +256,43 @@ impl<S> EmailAddr<&S> {
   }
 }
 
-impl<'a> EmailAddr<&'a str> {
-  /// Validates an ASCII email address and returns borrowed storage.
+impl EmailAddr<str> {
+  /// Validates an ASCII email address and returns it as a borrowed DST.
   ///
   /// This method does not perform IDNA normalization. ASCII A-labels are
   /// IDNA-validated when `alloc` or `std` is enabled and rejected otherwise.
   /// Use `TryFrom<&str>` for owned storage when Unicode domain names should be
   /// converted to punycode.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_ascii_str(input: &'a str) -> Result<Self, ParseEmailAddrError> {
+  pub fn try_from_ascii_str(input: &str) -> Result<&Self, ParseEmailAddrError> {
     verify_borrowed_ascii_email_addr(input.as_bytes())?;
-    Ok(Self(input))
+    Ok(Self::ref_cast(input))
   }
 
+  /// Converts the address to borrowed bytes.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub const fn as_bytes_addr(&self) -> &EmailAddr<[u8]> {
+    EmailAddr::<[u8]>::ref_cast(self.0.as_bytes())
+  }
+}
+
+impl EmailAddr<[u8]> {
+  /// Validates an ASCII email address and returns it as borrowed bytes.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn try_from_ascii_bytes(input: &[u8]) -> Result<&Self, ParseEmailAddrError> {
+    verify_borrowed_ascii_email_addr(input)?;
+    Ok(Self::ref_cast(input))
+  }
+
+  /// Converts the address to borrowed string storage.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn as_str_addr(&self) -> &EmailAddr<str> {
+    let input = str::from_utf8(&self.0).expect("validated email addresses are valid UTF-8");
+    EmailAddr::<str>::ref_cast(input)
+  }
+}
+
+impl<'a> EmailAddr<&'a str> {
   /// Converts the address to borrowed bytes.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn as_bytes_addr(&self) -> EmailAddr<&'a [u8]> {
@@ -203,13 +301,6 @@ impl<'a> EmailAddr<&'a str> {
 }
 
 impl<'a> EmailAddr<&'a [u8]> {
-  /// Validates an ASCII email address and returns borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_ascii_bytes(input: &'a [u8]) -> Result<Self, ParseEmailAddrError> {
-    verify_borrowed_ascii_email_addr(input)?;
-    Ok(Self(input))
-  }
-
   /// Converts the address to borrowed string storage.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn as_str_addr(&self) -> EmailAddr<&'a str> {
@@ -232,7 +323,8 @@ impl<'a> TryFrom<&'a str> for EmailAddr<&'a str> {
 
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
-    Self::try_from_ascii_str(input)
+    EmailAddr::<str>::try_from_ascii_str(input)?;
+    Ok(Self(input))
   }
 }
 
@@ -241,7 +333,8 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<&'a [u8]> {
 
   #[inline]
   fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
-    Self::try_from_ascii_bytes(input)
+    EmailAddr::<[u8]>::try_from_ascii_bytes(input)?;
+    Ok(Self(input))
   }
 }
 
@@ -434,8 +527,40 @@ macro_rules! impl_byte_storage {
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl_str_storage!(Box<str>, Rc<str>, Arc<str>);
 
+#[cfg(feature = "smol_str_0_3")]
+impl_str_storage!(smol_str_0_3::SmolStr);
+
+#[cfg(feature = "triomphe_0_1")]
+impl_str_storage!(triomphe_0_1::Arc<str>);
+
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl_byte_storage!(Box<[u8]>, Rc<[u8]>, Arc<[u8]>);
+
+#[cfg(feature = "triomphe_0_1")]
+impl_byte_storage!(triomphe_0_1::Arc<[u8]>);
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl core::str::FromStr for EmailAddr<Vec<u8>> {
+  type Err = ParseEmailAddrError;
+
+  #[inline]
+  fn from_str(input: &str) -> Result<Self, Self::Err> {
+    Self::try_from(input)
+  }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl<'a> TryFrom<&'a str> for EmailAddr<Vec<u8>> {
+  type Error = ParseEmailAddrError;
+
+  #[inline]
+  fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+    match EmailAddr::try_from_str(input)? {
+      Either::Left(addr) => Ok(Self(addr.0.as_bytes().to_vec())),
+      Either::Right(buf) => Ok(Self(buf.into())),
+    }
+  }
+}
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl<'a> TryFrom<&'a [u8]> for EmailAddr<Vec<u8>> {
@@ -462,6 +587,156 @@ impl TryFrom<Vec<u8>> for EmailAddr<Vec<u8>> {
     }
   }
 }
+
+#[cfg(feature = "bytes_1")]
+const _: () = {
+  use bytes_1::Bytes;
+
+  impl core::str::FromStr for EmailAddr<Bytes> {
+    type Err = ParseEmailAddrError;
+
+    #[inline]
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+      Self::try_from(input)
+    }
+  }
+
+  impl<'a> TryFrom<&'a str> for EmailAddr<Bytes> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_str(input)? {
+        Either::Left(addr) => Ok(Self(Bytes::copy_from_slice(addr.0.as_bytes()))),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+
+  impl<'a> TryFrom<&'a [u8]> for EmailAddr<Bytes> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_bytes(input)? {
+        Either::Left(addr) => Ok(Self(Bytes::copy_from_slice(addr.0))),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+
+  impl TryFrom<Bytes> for EmailAddr<Bytes> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: Bytes) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_bytes(input.as_ref())? {
+        Either::Left(_) => Ok(Self(input)),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+};
+
+#[cfg(feature = "tinyvec_1")]
+const _: () = {
+  use tinyvec_1::TinyVec;
+
+  impl<const N: usize> core::str::FromStr for EmailAddr<TinyVec<[u8; N]>> {
+    type Err = ParseEmailAddrError;
+
+    #[inline]
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+      Self::try_from(input)
+    }
+  }
+
+  impl<'a, const N: usize> TryFrom<&'a str> for EmailAddr<TinyVec<[u8; N]>> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_str(input)? {
+        Either::Left(addr) => Ok(Self(TinyVec::from(addr.0.as_bytes()))),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+
+  impl<'a, const N: usize> TryFrom<&'a [u8]> for EmailAddr<TinyVec<[u8; N]>> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_bytes(input)? {
+        Either::Left(addr) => Ok(Self(TinyVec::from(addr.0))),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+
+  impl<const N: usize> TryFrom<TinyVec<[u8; N]>> for EmailAddr<TinyVec<[u8; N]>> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: TinyVec<[u8; N]>) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_bytes(input.as_ref())? {
+        Either::Left(_) => Ok(Self(input)),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+};
+
+#[cfg(all(feature = "smallvec_1", any(feature = "alloc", feature = "std")))]
+const _: () = {
+  use smallvec_1::SmallVec;
+
+  impl<const N: usize> core::str::FromStr for EmailAddr<SmallVec<[u8; N]>> {
+    type Err = ParseEmailAddrError;
+
+    #[inline]
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+      Self::try_from(input)
+    }
+  }
+
+  impl<'a, const N: usize> TryFrom<&'a str> for EmailAddr<SmallVec<[u8; N]>> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_str(input)? {
+        Either::Left(addr) => Ok(Self(SmallVec::from_slice(addr.0.as_bytes()))),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+
+  impl<'a, const N: usize> TryFrom<&'a [u8]> for EmailAddr<SmallVec<[u8; N]>> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_bytes(input)? {
+        Either::Left(addr) => Ok(Self(SmallVec::from_slice(addr.0))),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+
+  impl<const N: usize> TryFrom<SmallVec<[u8; N]>> for EmailAddr<SmallVec<[u8; N]>> {
+    type Error = ParseEmailAddrError;
+
+    #[inline]
+    fn try_from(input: SmallVec<[u8; N]>) -> Result<Self, Self::Error> {
+      match EmailAddr::try_from_bytes(input.as_ref())? {
+        Either::Left(_) => Ok(Self(input)),
+        Either::Right(buf) => Ok(Self(buf.into())),
+      }
+    }
+  }
+};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl<'a> TryFrom<&'a str> for EmailAddr<Cow<'a, str>> {

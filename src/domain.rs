@@ -27,9 +27,10 @@ impl ParseDomainPartError {
 /// The domain-part may be either an RFC 5321 `Domain` such as `example.com`, or
 /// an address literal such as `[127.0.0.1]` or `[IPv6:::1]`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct DomainPart<S>(pub(crate) S);
+#[repr(transparent)]
+pub struct DomainPart<S: ?Sized = str>(pub(crate) S);
 
-impl<S> fmt::Display for DomainPart<S>
+impl<S: ?Sized> fmt::Display for DomainPart<S>
 where
   S: AsRef<str>,
 {
@@ -39,10 +40,13 @@ where
   }
 }
 
-impl<S> DomainPart<S> {
+impl<S: ?Sized> DomainPart<S> {
   /// Returns the inner storage.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn into_inner(self) -> S {
+  pub fn into_inner(self) -> S
+  where
+    S: Sized,
+  {
     self.0
   }
 
@@ -56,6 +60,13 @@ impl<S> DomainPart<S> {
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn as_ref(&self) -> DomainPart<&S> {
     DomainPart(&self.0)
+  }
+
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  const fn ref_cast(input: &S) -> &Self {
+    // SAFETY: DomainPart<S> is #[repr(transparent)] over S, so references to
+    // S and DomainPart<S> have the same layout and metadata, including for DSTs.
+    unsafe { &*(input as *const S as *const Self) }
   }
 }
 
@@ -79,7 +90,14 @@ impl<S> DomainPart<&S> {
   }
 }
 
-impl<S> AsRef<str> for DomainPart<S>
+impl<S: ?Sized> core::borrow::Borrow<S> for DomainPart<S> {
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  fn borrow(&self) -> &S {
+    &self.0
+  }
+}
+
+impl<S: ?Sized> AsRef<str> for DomainPart<S>
 where
   S: AsRef<str>,
 {
@@ -89,7 +107,7 @@ where
   }
 }
 
-impl<S> AsRef<[u8]> for DomainPart<S>
+impl<S: ?Sized> AsRef<[u8]> for DomainPart<S>
 where
   S: AsRef<[u8]>,
 {
@@ -99,14 +117,38 @@ where
   }
 }
 
-impl<'a> DomainPart<&'a str> {
-  /// Validates an ASCII domain-part and returns it as borrowed storage.
+impl DomainPart<str> {
+  /// Validates an ASCII domain-part and returns it as a borrowed DST.
   #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_ascii_str(input: &'a str) -> Result<Self, ParseDomainPartError> {
+  pub fn try_from_ascii_str(input: &str) -> Result<&Self, ParseDomainPartError> {
     verify_ascii_domain_part(input.as_bytes())?;
-    Ok(Self(input))
+    Ok(Self::ref_cast(input))
   }
 
+  /// Converts the domain-part to borrowed bytes.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub const fn as_bytes(&self) -> &DomainPart<[u8]> {
+    DomainPart::<[u8]>::ref_cast(self.0.as_bytes())
+  }
+}
+
+impl DomainPart<[u8]> {
+  /// Validates an ASCII domain-part and returns it as borrowed bytes.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn try_from_ascii_bytes(input: &[u8]) -> Result<&Self, ParseDomainPartError> {
+    verify_ascii_domain_part(input)?;
+    Ok(Self::ref_cast(input))
+  }
+
+  /// Converts the domain-part to a borrowed string.
+  #[cfg_attr(not(tarpaulin), inline(always))]
+  pub fn as_str(&self) -> &DomainPart<str> {
+    let input = str::from_utf8(&self.0).expect("validated domain-parts are valid UTF-8");
+    DomainPart::<str>::ref_cast(input)
+  }
+}
+
+impl<'a> DomainPart<&'a str> {
   /// Converts the domain-part to borrowed bytes.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub const fn as_bytes(&self) -> DomainPart<&'a [u8]> {
@@ -115,18 +157,31 @@ impl<'a> DomainPart<&'a str> {
 }
 
 impl<'a> DomainPart<&'a [u8]> {
-  /// Validates an ASCII domain-part and returns it as borrowed bytes.
-  #[cfg_attr(not(tarpaulin), inline(always))]
-  pub fn try_from_ascii_bytes(input: &'a [u8]) -> Result<Self, ParseDomainPartError> {
-    verify_ascii_domain_part(input)?;
-    Ok(Self(input))
-  }
-
   /// Converts the domain-part to a borrowed string.
   #[cfg_attr(not(tarpaulin), inline(always))]
   pub fn as_str(&self) -> DomainPart<&'a str> {
     let input = str::from_utf8(self.0).expect("validated domain-parts are valid UTF-8");
     DomainPart(input)
+  }
+}
+
+impl<'a> TryFrom<&'a str> for DomainPart<&'a str> {
+  type Error = ParseDomainPartError;
+
+  #[inline]
+  fn try_from(input: &'a str) -> Result<Self, Self::Error> {
+    DomainPart::<str>::try_from_ascii_str(input)?;
+    Ok(Self(input))
+  }
+}
+
+impl<'a> TryFrom<&'a [u8]> for DomainPart<&'a [u8]> {
+  type Error = ParseDomainPartError;
+
+  #[inline]
+  fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
+    DomainPart::<[u8]>::try_from_ascii_bytes(input)?;
+    Ok(Self(input))
   }
 }
 

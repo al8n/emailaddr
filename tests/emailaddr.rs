@@ -53,6 +53,24 @@ fn validates_common_addresses() {
 
   let quoted_at = EmailAddr::try_from_ascii_str("\"a@b\"@example.com").unwrap();
   assert_eq!(quoted_at.local_part().as_inner(), &"\"a@b\"");
+
+  let display_like =
+    EmailAddr::try_from_ascii_str("\"User <user@example.com>\"@example.com").unwrap();
+  assert_eq!(
+    display_like.local_part().as_inner(),
+    &"\"User <user@example.com>\""
+  );
+}
+
+#[test]
+fn rejects_rfc5322_display_names_and_address_lists() {
+  for input in [
+    "User <user@example.com>",
+    "With, Comma <a@example.net>",
+    "a@example.net, b@example.net",
+  ] {
+    assert!(EmailAddr::try_from_ascii_str(input).is_err(), "{input}");
+  }
 }
 
 #[test]
@@ -330,6 +348,13 @@ fn supports_smtp_utf8_local_parts() {
   assert_eq!(addr.as_str(), "用户@example.com");
   assert_eq!(addr.local_part().as_inner(), &"用户");
 
+  let emoji = EmailAddr::<String>::try_from("I❤️CHOCOLATE@example.com").unwrap();
+  assert_eq!(emoji.local_part().as_inner(), &"I❤️CHOCOLATE");
+
+  let lower = "İⅢ@example.com".to_lowercase();
+  let combining = EmailAddr::<String>::try_from(lower.as_str()).unwrap();
+  assert_eq!(combining.as_str(), lower);
+
   let quoted = EmailAddr::<String>::try_from("\"用户 name\"@example.com").unwrap();
   assert_eq!(quoted.local_part().as_inner(), &"\"用户 name\"");
 
@@ -442,7 +467,7 @@ fn supports_optional_storage_backends() {
     assert_eq!(addr.as_bytes(), b"user@example.com");
   }
 
-  #[cfg(all(feature = "smallvec_1", any(feature = "alloc", feature = "std")))]
+  #[cfg(feature = "smallvec_1")]
   {
     let addr: EmailAddr<smallvec_1::SmallVec<[u8; 32]>> =
       EmailAddr::try_from("user@example.com").unwrap();
@@ -571,7 +596,7 @@ fn supports_serde_core_for_owned_storage() {
   #[cfg(feature = "tinyvec_1")]
   assert_serde::<EmailAddr<tinyvec_1::TinyVec<[u8; 32]>>>();
 
-  #[cfg(all(feature = "smallvec_1", any(feature = "alloc", feature = "std")))]
+  #[cfg(feature = "smallvec_1")]
   assert_serde::<EmailAddr<smallvec_1::SmallVec<[u8; 32]>>>();
 }
 

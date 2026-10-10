@@ -192,6 +192,11 @@ minimum_dns_labels = 2
 | `arbitrary` | Invariant-preserving `arbitrary::Arbitrary` impls for owned storage backends |
 | `quickcheck` | Invariant-preserving `quickcheck::Arbitrary` impls for owned storage backends |
 
+Enable `alloc` or `std` for IDNA-normalizing `EmailAddr` deserialization;
+serde-only/no-alloc deserialization accepts structural ASCII forms and rejects
+A-label domains requiring IDNA validation. `LocalPart` and `DomainPart` remain
+serialize-only.
+
 ## RFC Coverage
 
 `emailaddr` validates the address forms relevant to an address value:

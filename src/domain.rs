@@ -218,6 +218,14 @@ pub fn verify_ascii_domain_part(input: &[u8]) -> Result<(), ParseDomainPartError
   }
 }
 
+pub(crate) fn verify_ascii_domain_part_with_options(
+  input: &[u8],
+  options: DomainOptions,
+) -> Result<(), ParseDomainPartError> {
+  verify_ascii_domain_part(input)?;
+  check_domain_qualification(input, options)
+}
+
 /// Verifies that `input` is a valid ASCII DNS domain name.
 ///
 /// DNS A-labels are IDNA-validated when `alloc` or `std` is enabled and

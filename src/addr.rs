@@ -19,7 +19,9 @@ use crate::{
 };
 
 use crate::{
-  domain::{contains_ascii_alabel, write_domain_part_with_options},
+  domain::{
+    contains_ascii_alabel, verify_ascii_domain_part_with_options, write_domain_part_with_options,
+  },
   local::verify_local_part_with_limit,
 };
 
@@ -1041,12 +1043,18 @@ fn write_normalized_email_addr(
   let (local, domain) = split_email_addr(input)?;
   crate::verify_local_part(local)?;
   let mut normalized_domain = Buffer::new();
-  write_normalized_domain_part(domain, &mut normalized_domain)?;
+  let domain_output = if domain.is_ascii() && !contains_ascii_alabel(domain) {
+    crate::verify_ascii_domain_part(domain)?;
+    domain
+  } else {
+    write_normalized_domain_part(domain, &mut normalized_domain)?;
+    normalized_domain.as_bytes()
+  };
 
   if local
     .len()
     .saturating_add(1)
-    .saturating_add(normalized_domain.as_bytes().len())
+    .saturating_add(domain_output.len())
     > MAX_EMAIL_ADDR_LENGTH
   {
     return Err(ParseEmailAddrError::Address);
@@ -1059,7 +1067,7 @@ fn write_normalized_email_addr(
     .push(b'@')
     .map_err(|_| ParseEmailAddrError::Address)?;
   output
-    .extend_from_slice(normalized_domain.as_bytes())
+    .extend_from_slice(domain_output)
     .map_err(|_| ParseEmailAddrError::Address)?;
   Ok(())
 }
@@ -1080,12 +1088,18 @@ fn write_email_addr_with_options(
     options.local().smtp_utf8().is_allow(),
   )?;
   let mut normalized_domain = Buffer::new();
-  write_domain_part_with_options(domain, &mut normalized_domain, options.domain())?;
+  let domain_output = if domain.is_ascii() && !contains_ascii_alabel(domain) {
+    verify_ascii_domain_part_with_options(domain, options.domain())?;
+    domain
+  } else {
+    write_domain_part_with_options(domain, &mut normalized_domain, options.domain())?;
+    normalized_domain.as_bytes()
+  };
 
   if local
     .len()
     .saturating_add(1)
-    .saturating_add(normalized_domain.as_bytes().len())
+    .saturating_add(domain_output.len())
     > MAX_EMAIL_ADDR_LENGTH
   {
     return Err(ParseEmailAddrError::Address);
@@ -1098,7 +1112,7 @@ fn write_email_addr_with_options(
     .push(b'@')
     .map_err(|_| ParseEmailAddrError::Address)?;
   output
-    .extend_from_slice(normalized_domain.as_bytes())
+    .extend_from_slice(domain_output)
     .map_err(|_| ParseEmailAddrError::Address)?;
   Ok(())
 }

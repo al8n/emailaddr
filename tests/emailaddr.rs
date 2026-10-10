@@ -544,6 +544,58 @@ fn classifies_length_errors_after_component_validation() {
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[test]
+fn classifies_long_general_literals_after_domain_validation() {
+  for domain_len in 253..=256 {
+    let payload_len = domain_len - 6;
+    let domain = format!("[TAG:{}]", "a".repeat(payload_len));
+    assert_eq!(domain.len(), domain_len);
+    assert!(verify_ascii_domain_part(domain.as_bytes()).is_ok());
+
+    let ascii = format!("a@{domain}");
+    assert!(matches!(
+      EmailAddr::<String>::try_from(ascii.as_str()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      verify_email_addr(ascii.as_bytes()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      EmailAddr::<Buffer, Relax>::parse_with_options(ascii.as_str(), Options::new()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      verify_email_addr_with_options(ascii.as_bytes(), Options::new()),
+      Err(ParseEmailAddrError::Address)
+    ));
+
+    let smtp_utf8 = format!("用户@{domain}");
+    assert!(matches!(
+      EmailAddr::<String>::try_from(smtp_utf8.as_str()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      verify_email_addr(smtp_utf8.as_bytes()),
+      Err(ParseEmailAddrError::Address)
+    ));
+  }
+
+  let malformed = format!("[TAG:{} ]", "a".repeat(246));
+  assert_eq!(malformed.len(), 253);
+  assert_eq!(
+    verify_ascii_domain_part(malformed.as_bytes())
+      .unwrap_err()
+      .as_str(),
+    "invalid email domain-part"
+  );
+  assert!(matches!(
+    EmailAddr::<String>::try_from(format!("a@{malformed}").as_str()),
+    Err(ParseEmailAddrError::DomainPart(_))
+  ));
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[test]
 fn equality_ordering_and_hashing_are_representation_sensitive() {
   use std::collections::HashSet;
 

@@ -597,7 +597,16 @@ fn classifies_long_general_literals_after_domain_validation() {
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[test]
 fn equality_ordering_and_hashing_are_representation_sensitive() {
-  use std::collections::HashSet;
+  use std::{
+    collections::{HashMap, HashSet},
+    hash::{Hash, Hasher},
+  };
+
+  fn hash_value<T: Hash>(value: &T) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+  }
 
   let upper: EmailAddr<String> = EmailAddr::try_from("User@Example.com").unwrap();
   let lower: EmailAddr<String> = EmailAddr::try_from("User@example.com").unwrap();
@@ -608,6 +617,11 @@ fn equality_ordering_and_hashing_are_representation_sensitive() {
   addresses.insert(upper.clone());
   addresses.insert(lower.clone());
   assert_eq!(addresses.len(), 2);
+  let borrowed_address = String::from("User@Example.com");
+  assert_eq!(hash_value(&upper), hash_value(&borrowed_address));
+  let mut address_map = HashMap::new();
+  address_map.insert(upper.clone(), 1_u8);
+  assert_eq!(address_map.get::<String>(&borrowed_address), Some(&1));
 
   let upper_domain: DomainPart<&str> = DomainPart::try_from("Example.com").unwrap();
   let lower_domain: DomainPart<&str> = DomainPart::try_from("example.com").unwrap();
@@ -617,6 +631,11 @@ fn equality_ordering_and_hashing_are_representation_sensitive() {
   domains.insert(upper_domain);
   domains.insert(lower_domain);
   assert_eq!(domains.len(), 2);
+  let borrowed_domain: &str = "Example.com";
+  assert_eq!(hash_value(&upper_domain), hash_value(&borrowed_domain));
+  let mut domain_map = HashMap::new();
+  domain_map.insert(upper_domain, 1_u8);
+  assert_eq!(domain_map.get::<&str>(&borrowed_domain), Some(&1));
 
   let upper_local: LocalPart<&str> = LocalPart::try_from("User").unwrap();
   let lower_local: LocalPart<&str> = LocalPart::try_from("user").unwrap();

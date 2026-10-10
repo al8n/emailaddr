@@ -32,9 +32,10 @@ impl ParseDomainPartError {
 /// value into storage and validate it with [`DomainPart::try_from_ascii_str`],
 /// [`DomainPart::try_from_ascii_bytes`], or the corresponding `TryFrom` impl.
 ///
-/// Equality, ordering, and hashing compare the stored representation. DNS
-/// case-insensitivity is a protocol property, not a promise of
-/// case-insensitive trait implementations.
+/// Equality, ordering, and hashing delegate to the selected storage type. The
+/// built-in string, byte, and [`Buffer`] storages are representation-sensitive
+/// and case-sensitive. DNS case-insensitivity is a protocol property, not a
+/// promise of case-insensitive trait implementations.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct DomainPart<S: ?Sized = str>(pub(crate) S);

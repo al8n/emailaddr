@@ -75,10 +75,12 @@ impl ParseEmailAddrError {
 /// `parse_with_options`. Strict addresses can be widened into relaxed addresses,
 /// but relaxed addresses must be revalidated before they can become strict.
 ///
-/// Equality, ordering, and hashing are representation-sensitive and
-/// case-sensitive. A local-part is not case-folded, and DNS case-insensitivity
-/// does not make `User@Example.com` equal to `User@example.com`. Different text
-/// spellings of an address literal are likewise not required to compare equal.
+/// Equality, ordering, and hashing delegate to the selected storage type. The
+/// built-in string, byte, and [`Buffer`] storages are therefore
+/// representation-sensitive and case-sensitive. A local-part is not
+/// case-folded, and DNS case-insensitivity does not make `User@Example.com`
+/// equal to `User@example.com`. Different text spellings of an address literal
+/// are likewise not required to compare equal.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct EmailAddr<S: ?Sized = str, P = Strict> {

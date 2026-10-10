@@ -1,12 +1,15 @@
 use emailaddr::{
   Buffer, DomainLiteralPolicy, DomainOptions, DomainPart, DomainUnicodePolicy, EmailAddr, Limits,
-  LocalOptions, LocalPart, MAX_DOMAIN_PART_LENGTH, Options, ParseEmailAddrError, Relax,
-  SmtpUtf8Policy, verify_ascii_dns_domain, verify_ascii_domain_part, verify_ascii_local_part,
-  verify_email_addr_with_options, verify_local_part,
+  LocalOptions, LocalPart, Options, Relax, SmtpUtf8Policy, verify_ascii_dns_domain,
+  verify_ascii_domain_part, verify_ascii_local_part, verify_email_addr_with_options,
+  verify_local_part,
 };
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-use emailaddr::{MAX_EMAIL_ADDR_LENGTH, verify_ascii_email_addr, verify_email_addr};
+use emailaddr::{
+  MAX_DOMAIN_PART_LENGTH, MAX_EMAIL_ADDR_LENGTH, ParseEmailAddrError, verify_ascii_email_addr,
+  verify_email_addr,
+};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use std::{borrow::Cow, rc::Rc, sync::Arc};
@@ -537,6 +540,42 @@ fn classifies_length_errors_after_component_validation() {
     verify_email_addr(unicode_address.as_bytes()),
     Err(ParseEmailAddrError::Address)
   ));
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[test]
+fn equality_ordering_and_hashing_are_representation_sensitive() {
+  use std::collections::HashSet;
+
+  let upper: EmailAddr<String> = EmailAddr::try_from("User@Example.com").unwrap();
+  let lower: EmailAddr<String> = EmailAddr::try_from("User@example.com").unwrap();
+  assert_ne!(upper, lower);
+  assert_ne!(upper.cmp(&lower), core::cmp::Ordering::Equal);
+
+  let mut addresses = HashSet::new();
+  addresses.insert(upper.clone());
+  addresses.insert(lower.clone());
+  assert_eq!(addresses.len(), 2);
+
+  let upper_domain: DomainPart<&str> = DomainPart::try_from("Example.com").unwrap();
+  let lower_domain: DomainPart<&str> = DomainPart::try_from("example.com").unwrap();
+  assert_ne!(upper_domain, lower_domain);
+  assert_ne!(upper_domain.cmp(&lower_domain), core::cmp::Ordering::Equal);
+  let mut domains = HashSet::new();
+  domains.insert(upper_domain);
+  domains.insert(lower_domain);
+  assert_eq!(domains.len(), 2);
+
+  let upper_local: LocalPart<&str> = LocalPart::try_from("User").unwrap();
+  let lower_local: LocalPart<&str> = LocalPart::try_from("user").unwrap();
+  assert_ne!(upper_local, lower_local);
+
+  let compressed: EmailAddr<&str> = EmailAddr::try_from("user@[IPv6:::1]").unwrap();
+  let expanded: EmailAddr<&str> = EmailAddr::try_from("user@[IPv6:0:0:0:0:0:0:0:1]").unwrap();
+  assert_ne!(compressed, expanded);
+
+  assert_eq!(*upper.as_ref().as_inner(), upper.as_inner());
+  assert_eq!(*upper_domain.as_ref().as_inner(), upper_domain.as_inner());
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]

@@ -7,6 +7,10 @@ pub const DEFAULT_MAX_LOCAL_PART_LENGTH: usize = MAX_LOCAL_PART_LENGTH;
 pub const DEFAULT_MINIMUM_DNS_LABELS: usize = 1;
 
 /// Email address parsing options.
+///
+/// With the `serde` feature, human-readable policy values use stable names.
+/// Binary representations are not stable across crate versions and only
+/// current-version round trips are supported.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct Options {

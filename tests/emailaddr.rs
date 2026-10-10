@@ -6,7 +6,10 @@ use emailaddr::{
 };
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-use emailaddr::{MAX_EMAIL_ADDR_LENGTH, verify_ascii_email_addr, verify_email_addr};
+use emailaddr::{
+  MAX_DOMAIN_PART_LENGTH, MAX_EMAIL_ADDR_LENGTH, ParseEmailAddrError, ParseEmailAddrOutput,
+  RelaxedParseOutput, StrictParseOutput, verify_ascii_email_addr, verify_email_addr,
+};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use std::{borrow::Cow, rc::Rc, sync::Arc};
@@ -66,6 +69,30 @@ fn validates_common_addresses() {
     display_like.local_part().as_inner(),
     &"\"User <user@example.com>\""
   );
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn buffer_hash_matches_borrowed_str_hash() {
+  use core::{
+    borrow::Borrow,
+    hash::{Hash, Hasher},
+  };
+  use std::collections::{HashMap, hash_map::DefaultHasher};
+
+  let buffer: Buffer = EmailAddr::try_from("user@example.com")
+    .unwrap()
+    .into_inner();
+
+  let mut buffer_hasher = DefaultHasher::new();
+  buffer.hash(&mut buffer_hasher);
+  let mut str_hasher = DefaultHasher::new();
+  <Buffer as Borrow<str>>::borrow(&buffer).hash(&mut str_hasher);
+  assert_eq!(buffer_hasher.finish(), str_hasher.finish());
+
+  let mut values = HashMap::new();
+  values.insert(buffer, 1_u8);
+  assert_eq!(values.get::<str>("user@example.com"), Some(&1));
 }
 
 #[test]
@@ -428,6 +455,198 @@ fn enforces_length_after_domain_normalization() {
   let addr = EmailAddr::<String>::try_from(input.as_str()).unwrap();
   let ascii_label = "a".repeat(63);
   assert_eq!(addr.as_str(), format!("u@{ascii_label}.{ascii_label}"));
+  assert!(verify_email_addr(input.as_bytes()).is_ok());
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[test]
+fn classifies_length_errors_after_component_validation() {
+  fn domain_with_len(length: usize) -> String {
+    let tail_len = length - 192;
+    format!(
+      "{}.{}.{}.{}",
+      "a".repeat(63),
+      "b".repeat(63),
+      "c".repeat(63),
+      "d".repeat(tail_len),
+    )
+  }
+
+  let label63 = format!("{}.com", "a".repeat(63));
+  let label64 = format!("{}.com", "a".repeat(64));
+  assert!(verify_ascii_dns_domain(label63.as_bytes()).is_ok());
+  assert_eq!(
+    verify_ascii_dns_domain(label64.as_bytes())
+      .unwrap_err()
+      .as_str(),
+    "invalid email domain-part"
+  );
+
+  let domain253 = domain_with_len(MAX_DOMAIN_PART_LENGTH);
+  let domain254 = domain_with_len(MAX_DOMAIN_PART_LENGTH + 1);
+  assert!(verify_ascii_dns_domain(domain253.as_bytes()).is_ok());
+  assert_eq!(
+    verify_ascii_dns_domain(domain254.as_bytes())
+      .unwrap_err()
+      .as_str(),
+    "invalid email domain-part"
+  );
+
+  let local65 = format!("{}@example.com", "a".repeat(65));
+  assert!(matches!(
+    EmailAddr::<String>::try_from(local65.as_str()),
+    Err(ParseEmailAddrError::LocalPart(_))
+  ));
+
+  let address254 = format!("a@{}", domain_with_len(252));
+  let address255 = format!("a@{domain253}");
+  assert_eq!(address254.len(), MAX_EMAIL_ADDR_LENGTH);
+  assert_eq!(address255.len(), MAX_EMAIL_ADDR_LENGTH + 1);
+  assert!(EmailAddr::<String>::try_from(address254.as_str()).is_ok());
+  assert!(verify_ascii_email_addr(address254.as_bytes()).is_ok());
+  assert!(matches!(
+    EmailAddr::<String>::try_from(address255.as_str()),
+    Err(ParseEmailAddrError::Address)
+  ));
+  assert!(matches!(
+    verify_email_addr(address255.as_bytes()),
+    Err(ParseEmailAddrError::Address)
+  ));
+
+  let options = Options::new();
+  assert!(matches!(
+    EmailAddr::<Buffer, Relax>::parse_with_options(address255.as_str(), options),
+    Err(ParseEmailAddrError::Address)
+  ));
+  assert!(matches!(
+    verify_email_addr_with_options(address255.as_bytes(), options),
+    Err(ParseEmailAddrError::Address)
+  ));
+
+  let unicode_label = "ａ".repeat(63);
+  let unicode_domain = format!(
+    "{unicode_label}.{}.{}.{}",
+    "ｂ".repeat(63),
+    "ｃ".repeat(63),
+    "ｄ".repeat(61),
+  );
+  let unicode_address = format!("a@{unicode_domain}");
+  assert!(unicode_address.len() > MAX_EMAIL_ADDR_LENGTH);
+  assert!(matches!(
+    EmailAddr::<String>::try_from(unicode_address.as_str()),
+    Err(ParseEmailAddrError::Address)
+  ));
+  assert!(matches!(
+    verify_email_addr(unicode_address.as_bytes()),
+    Err(ParseEmailAddrError::Address)
+  ));
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[test]
+fn classifies_long_general_literals_after_domain_validation() {
+  for domain_len in 253..=256 {
+    let payload_len = domain_len - 6;
+    let domain = format!("[TAG:{}]", "a".repeat(payload_len));
+    assert_eq!(domain.len(), domain_len);
+    assert!(verify_ascii_domain_part(domain.as_bytes()).is_ok());
+
+    let ascii = format!("a@{domain}");
+    assert!(matches!(
+      EmailAddr::<String>::try_from(ascii.as_str()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      verify_email_addr(ascii.as_bytes()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      EmailAddr::<Buffer, Relax>::parse_with_options(ascii.as_str(), Options::new()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      verify_email_addr_with_options(ascii.as_bytes(), Options::new()),
+      Err(ParseEmailAddrError::Address)
+    ));
+
+    let smtp_utf8 = format!("用户@{domain}");
+    assert!(matches!(
+      EmailAddr::<String>::try_from(smtp_utf8.as_str()),
+      Err(ParseEmailAddrError::Address)
+    ));
+    assert!(matches!(
+      verify_email_addr(smtp_utf8.as_bytes()),
+      Err(ParseEmailAddrError::Address)
+    ));
+  }
+
+  let malformed = format!("[TAG:{} ]", "a".repeat(246));
+  assert_eq!(malformed.len(), 253);
+  assert_eq!(
+    verify_ascii_domain_part(malformed.as_bytes())
+      .unwrap_err()
+      .as_str(),
+    "invalid email domain-part"
+  );
+  assert!(matches!(
+    EmailAddr::<String>::try_from(format!("a@{malformed}").as_str()),
+    Err(ParseEmailAddrError::DomainPart(_))
+  ));
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[test]
+fn equality_ordering_and_hashing_are_representation_sensitive() {
+  use std::{
+    collections::{HashMap, HashSet},
+    hash::{Hash, Hasher},
+  };
+
+  fn hash_value<T: Hash>(value: &T) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+  }
+
+  let upper: EmailAddr<String> = EmailAddr::try_from("User@Example.com").unwrap();
+  let lower: EmailAddr<String> = EmailAddr::try_from("User@example.com").unwrap();
+  assert_ne!(upper, lower);
+  assert_ne!(upper.cmp(&lower), core::cmp::Ordering::Equal);
+
+  let mut addresses = HashSet::new();
+  addresses.insert(upper.clone());
+  addresses.insert(lower.clone());
+  assert_eq!(addresses.len(), 2);
+  let borrowed_address = String::from("User@Example.com");
+  assert_eq!(hash_value(&upper), hash_value(&borrowed_address));
+  let mut address_map = HashMap::new();
+  address_map.insert(upper.clone(), 1_u8);
+  assert_eq!(address_map.get::<String>(&borrowed_address), Some(&1));
+
+  let upper_domain: DomainPart<&str> = DomainPart::try_from("Example.com").unwrap();
+  let lower_domain: DomainPart<&str> = DomainPart::try_from("example.com").unwrap();
+  assert_ne!(upper_domain, lower_domain);
+  assert_ne!(upper_domain.cmp(&lower_domain), core::cmp::Ordering::Equal);
+  let mut domains = HashSet::new();
+  domains.insert(upper_domain);
+  domains.insert(lower_domain);
+  assert_eq!(domains.len(), 2);
+  let borrowed_domain: &str = "Example.com";
+  assert_eq!(hash_value(&upper_domain), hash_value(&borrowed_domain));
+  let mut domain_map = HashMap::new();
+  domain_map.insert(upper_domain, 1_u8);
+  assert_eq!(domain_map.get::<&str>(&borrowed_domain), Some(&1));
+
+  let upper_local: LocalPart<&str> = LocalPart::try_from("User").unwrap();
+  let lower_local: LocalPart<&str> = LocalPart::try_from("user").unwrap();
+  assert_ne!(upper_local, lower_local);
+
+  let compressed: EmailAddr<&str> = EmailAddr::try_from("user@[IPv6:::1]").unwrap();
+  let expanded: EmailAddr<&str> = EmailAddr::try_from("user@[IPv6:0:0:0:0:0:0:0:1]").unwrap();
+  assert_ne!(compressed, expanded);
+
+  assert_eq!(*upper.as_ref().as_inner(), upper.as_inner());
+  assert_eq!(*upper_domain.as_ref().as_inner(), upper_domain.as_inner());
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -515,36 +734,190 @@ fn supports_storage_backends() {
   assert_eq!(bytes.as_bytes(), stack.as_bytes());
 }
 
-#[cfg(feature = "zeroize")]
+#[cfg(any(feature = "alloc", feature = "std"))]
 #[test]
-fn supports_zeroize_for_stack_storage() {
-  fn assert_zeroize<T: ?Sized + zeroize::Zeroize>() {}
+fn parse_output_enum_preserves_exact_variants_and_storage() {
+  let original: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str("user@example.com").unwrap();
+  assert!(matches!(original, ParseEmailAddrOutput::Original(_)));
 
-  assert_zeroize::<Buffer>();
-  assert_zeroize::<EmailAddr<Buffer>>();
-  assert_zeroize::<EmailAddr<[u8]>>();
-  assert_zeroize::<LocalPart<[u8]>>();
-  assert_zeroize::<DomainPart<[u8]>>();
+  let normalized: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str("user@测试.中国").unwrap();
+  match normalized {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode domain should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+      assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s")
+    }
+  }
 
-  let mut addr: EmailAddr<Buffer> = EmailAddr::try_from("user@example.com").unwrap();
-  assert_eq!(addr.as_bytes(), b"user@example.com");
+  let bytes_original: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes(b"user@example.com").unwrap();
+  assert!(matches!(bytes_original, ParseEmailAddrOutput::Original(_)));
 
-  zeroize::Zeroize::zeroize(&mut addr);
-  assert_eq!(addr.as_inner().as_bytes(), b"");
-}
+  let canonical_alabel = "user@xn--0zwm56d.xn--fiqs8s";
+  let canonical_str: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str(canonical_alabel).unwrap();
+  assert!(matches!(canonical_str, ParseEmailAddrOutput::Original(_)));
 
-#[cfg(all(feature = "zeroize", any(feature = "alloc", feature = "std")))]
-#[test]
-fn supports_zeroize_for_owned_storage() {
-  fn assert_zeroize<T: ?Sized + zeroize::Zeroize>() {}
+  let canonical_bytes: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes(canonical_alabel.as_bytes()).unwrap();
+  assert!(matches!(canonical_bytes, ParseEmailAddrOutput::Original(_)));
 
-  assert_zeroize::<EmailAddr<String>>();
+  let smtp_utf8 = "用户@example.com";
+  let smtp_str: StrictParseOutput<&str> = EmailAddr::<&str>::try_from_str(smtp_utf8).unwrap();
+  assert!(matches!(smtp_str, ParseEmailAddrOutput::Original(_)));
 
-  let mut addr: EmailAddr<String> = "user@example.com".parse().unwrap();
-  assert_eq!(addr.as_str(), "user@example.com");
+  let smtp_bytes: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes(smtp_utf8.as_bytes()).unwrap();
+  assert!(matches!(smtp_bytes, ParseEmailAddrOutput::Original(_)));
 
-  zeroize::Zeroize::zeroize(&mut addr);
-  assert!(addr.as_inner().is_empty());
+  let bytes_normalized: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes("user@测试.中国".as_bytes()).unwrap();
+  assert!(matches!(
+    bytes_normalized,
+    ParseEmailAddrOutput::Normalized(_)
+  ));
+
+  let unicode_dot: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str("user@example．com").unwrap();
+  match unicode_dot {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode dot should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => assert_eq!(addr.as_str(), "user@example.com"),
+  }
+
+  assert!(EmailAddr::<&str>::try_from_str("user@xn--55555577.com").is_err());
+  assert!(EmailAddr::<&[u8]>::try_from_bytes(b"user@xn--55555577.com").is_err());
+
+  let relaxed_original: RelaxedParseOutput<String> =
+    EmailAddr::<String, Relax>::try_from_str_with_options(
+      String::from("user@example.com"),
+      Options::new(),
+    )
+    .unwrap();
+  assert!(matches!(
+    relaxed_original,
+    ParseEmailAddrOutput::Original(_)
+  ));
+
+  let relaxed_canonical: RelaxedParseOutput<&str> =
+    EmailAddr::<&str, Relax>::try_from_str_with_options(canonical_alabel, Options::new()).unwrap();
+  assert!(matches!(
+    relaxed_canonical,
+    ParseEmailAddrOutput::Original(_)
+  ));
+
+  let relaxed_smtp: RelaxedParseOutput<&[u8]> =
+    EmailAddr::<&[u8], Relax>::try_from_bytes_with_options(smtp_utf8.as_bytes(), Options::new())
+      .unwrap();
+  assert!(matches!(relaxed_smtp, ParseEmailAddrOutput::Original(_)));
+
+  let relaxed_normalized: RelaxedParseOutput<String> =
+    EmailAddr::<String, Relax>::try_from_str_with_options(
+      String::from("user@测试.中国"),
+      Options::new(),
+    )
+    .unwrap();
+  assert!(matches!(
+    relaxed_normalized,
+    ParseEmailAddrOutput::Normalized(_)
+  ));
+
+  let relaxed_unicode_dot: RelaxedParseOutput<&str> =
+    EmailAddr::<&str, Relax>::try_from_str_with_options("user@example．com", Options::new())
+      .unwrap();
+  match relaxed_unicode_dot {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode dot should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => assert_eq!(addr.as_str(), "user@example.com"),
+  }
+
+  assert!(
+    EmailAddr::<&str, Relax>::try_from_str_with_options("user@xn--55555577.com", Options::new(),)
+      .is_err()
+  );
+
+  let owned = String::from("user@example.com");
+  let pointer = owned.as_ptr();
+  match EmailAddr::<String>::try_from_str(owned).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_inner().as_ptr(), pointer),
+    ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
+  }
+
+  let owned_canonical = String::from(canonical_alabel);
+  let canonical_pointer = owned_canonical.as_ptr();
+  match EmailAddr::<String>::try_from_str(owned_canonical).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_inner().as_ptr(), canonical_pointer),
+    ParseEmailAddrOutput::Normalized(_) => panic!("canonical A-label should preserve storage"),
+  }
+
+  let owned_bytes = b"user@example.com".to_vec();
+  let bytes_pointer = owned_bytes.as_ptr();
+  match EmailAddr::<Vec<u8>>::try_from_bytes(owned_bytes).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_inner().as_ptr(), bytes_pointer),
+    ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
+  }
+
+  let owned_smtp_bytes = smtp_utf8.as_bytes().to_vec();
+  let smtp_bytes_pointer = owned_smtp_bytes.as_ptr();
+  match EmailAddr::<Vec<u8>>::try_from_bytes(owned_smtp_bytes).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => {
+      assert_eq!(addr.as_inner().as_ptr(), smtp_bytes_pointer)
+    }
+    ParseEmailAddrOutput::Normalized(_) => panic!("SMTPUTF8 address should preserve storage"),
+  }
+
+  let relaxed_bytes_original: RelaxedParseOutput<Vec<u8>> =
+    EmailAddr::<Vec<u8>, Relax>::try_from_bytes_with_options(
+      b"user@example.com".to_vec(),
+      Options::new(),
+    )
+    .unwrap();
+  assert!(matches!(
+    relaxed_bytes_original,
+    ParseEmailAddrOutput::Original(addr) if addr.as_inner().as_slice() == b"user@example.com"
+  ));
+
+  let relaxed_bytes_normalized: RelaxedParseOutput<Vec<u8>> =
+    EmailAddr::<Vec<u8>, Relax>::try_from_bytes_with_options(
+      "user@测试.中国".as_bytes().to_vec(),
+      Options::new(),
+    )
+    .unwrap();
+  match relaxed_bytes_normalized {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode domain should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+      assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s")
+    }
+  }
+
+  let borrowed: Cow<'static, str> = Cow::Borrowed("user@example.com");
+  match EmailAddr::<Cow<'static, str>>::try_from_str(borrowed).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => {
+      assert!(matches!(
+        addr.into_inner(),
+        Cow::Borrowed("user@example.com")
+      ))
+    }
+    ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
+  }
+
+  #[cfg(feature = "bytes_1")]
+  {
+    let output: StrictParseOutput<bytes_1::Bytes> = EmailAddr::<bytes_1::Bytes>::try_from_bytes(
+      bytes_1::Bytes::copy_from_slice(b"user@example.com"),
+    )
+    .unwrap();
+    assert!(matches!(output, ParseEmailAddrOutput::Original(_)));
+  }
+
+  #[cfg(feature = "smallvec_1")]
+  {
+    let output: StrictParseOutput<smallvec_1::SmallVec<[u8; 32]>> =
+      EmailAddr::<smallvec_1::SmallVec<[u8; 32]>>::try_from_bytes(
+        smallvec_1::SmallVec::from_slice(b"user@example.com"),
+      )
+      .unwrap();
+    assert!(matches!(output, ParseEmailAddrOutput::Original(_)));
+  }
 }
 
 #[cfg(any(
@@ -719,6 +1092,7 @@ fn parse_options_do_not_launder_relaxed_values_as_strict_parts() {
 #[test]
 fn supports_serde_core_for_stack_storage() {
   assert_serde::<EmailAddr<Buffer>>();
+  assert_serialize::<EmailAddr<Buffer, Relax>>();
   assert_serialize::<LocalPart<&str>>();
   assert_serialize::<DomainPart<&str>>();
   assert_serde::<Options>();
@@ -728,6 +1102,13 @@ fn supports_serde_core_for_stack_storage() {
   assert_serde::<SmtpUtf8Policy>();
   assert_serde::<DomainLiteralPolicy>();
   assert_serde::<DomainUnicodePolicy>();
+
+  let relaxed =
+    EmailAddr::<Buffer, Relax>::parse_with_options("user@example.com", Options::new()).unwrap();
+  assert_eq!(
+    serde_json::to_string(&relaxed).unwrap(),
+    r#""user@example.com""#
+  );
 }
 
 #[cfg(feature = "serde")]

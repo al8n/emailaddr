@@ -10,16 +10,15 @@ use std::{
   vec::Vec,
 };
 
-#[cfg(any(feature = "alloc", feature = "std"))]
-use either::Either;
-
 use crate::{
   Buffer, DomainPart, LocalPart, MAX_LOCAL_PART_LENGTH, Options, ParseDomainPartError,
   ParseLocalPartError,
 };
 
 use crate::{
-  domain::{contains_ascii_alabel, write_domain_part_with_options},
+  domain::{
+    contains_ascii_alabel, verify_ascii_domain_part_with_options, write_domain_part_with_options,
+  },
   local::verify_local_part_with_limit,
 };
 
@@ -29,10 +28,31 @@ use crate::domain::write_normalized_domain_part;
 /// The maximum email address length accepted by this crate.
 pub const MAX_EMAIL_ADDR_LENGTH: usize = 254;
 
-/// Output from relaxed parsing that may preserve the original storage or return a stack buffer.
+/// Result of a parse that may normalize into a stack buffer.
+///
+/// The parser compares the emitted representation with the input and preserves
+/// the caller's storage whenever those bytes are unchanged. This includes
+/// ordinary ASCII, canonical IDNA A-labels, and SMTPUTF8 local-parts.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
-pub type RelaxedParseOutput<S> = Either<EmailAddr<S, Relax>, EmailAddr<Buffer, Relax>>;
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum ParseEmailAddrOutput<S, P = Strict> {
+  /// The emitted representation matched the input, so the original storage is preserved.
+  Original(EmailAddr<S, P>),
+  /// The emitted representation differs from the input and is stored in [`Buffer`].
+  Normalized(EmailAddr<Buffer, P>),
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
+/// Output from strict parsing with the strict policy marker.
+pub type StrictParseOutput<S> = ParseEmailAddrOutput<S, Strict>;
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
+/// Output from parsing with the relaxed policy marker.
+pub type RelaxedParseOutput<S> = ParseEmailAddrOutput<S, Relax>;
 
 /// The provided input is not a syntactically valid email address.
 #[derive(Debug, Clone, Eq, PartialEq, thiserror::Error)]
@@ -72,6 +92,20 @@ impl ParseEmailAddrError {
 /// `EmailAddr<S, Relax>` is the opt-in relaxed policy form returned by
 /// `parse_with_options`. Strict addresses can be widened into relaxed addresses,
 /// but relaxed addresses must be revalidated before they can become strict.
+///
+/// Equality, ordering, and hashing delegate to the selected storage type. The
+/// built-in string, byte, and [`Buffer`] storages are therefore
+/// representation-sensitive and case-sensitive. A local-part is not
+/// case-folded, and DNS case-insensitivity does not make `User@Example.com`
+/// equal to `User@example.com`. Different text spellings of an address literal
+/// are likewise not required to compare equal.
+///
+/// With the `serde` feature, `EmailAddr` implements `Serialize` for supported
+/// storage types and strict `EmailAddr` forms implement `Deserialize` where
+/// storage permits. `EmailAddr<S, Relax>` is serialize-only. Human-readable
+/// serialization is the validated address string; binary representations are
+/// not stable across crate versions and only current-version round trips are
+/// supported.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct EmailAddr<S: ?Sized = str, P = Strict> {
@@ -104,18 +138,6 @@ where
   #[inline]
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(self.storage.as_ref())
-  }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<S: ?Sized, P> zeroize::Zeroize for EmailAddr<S, P>
-where
-  S: zeroize::Zeroize,
-{
-  #[inline]
-  fn zeroize(&mut self) {
-    zeroize::Zeroize::zeroize(&mut self.storage);
   }
 }
 
@@ -428,10 +450,10 @@ impl TryFrom<&str> for EmailAddr<Buffer> {
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(Buffer::copy_from_slice(
+        ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(Buffer::copy_from_slice(
           addr.storage.as_bytes(),
         ))),
-        Either::Right(buf) => Ok(Self::from_inner(buf)),
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner())),
       }
     }
 
@@ -456,8 +478,10 @@ impl TryFrom<&[u8]> for EmailAddr<Buffer> {
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(Buffer::copy_from_slice(addr.storage))),
-        Either::Right(buf) => Ok(Self::from_inner(buf)),
+        ParseEmailAddrOutput::Original(addr) => {
+          Ok(Self::from_inner(Buffer::copy_from_slice(addr.storage)))
+        }
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner())),
       }
     }
 
@@ -497,11 +521,14 @@ impl EmailAddr<Buffer, Relax> {
 impl<S> EmailAddr<S> {
   /// Parses an email address from bytes.
   ///
-  /// ASCII addresses are returned using the original storage. If the domain-part
-  /// contains non-ASCII Unicode, it is normalized to IDNA/punycode and returned
-  /// as [`Buffer`]. SMTPUTF8 local-parts are preserved as UTF-8.
+  /// Ordinary ASCII, canonical IDNA A-labels, and SMTPUTF8 local-parts are
+  /// returned using the original storage when normalization leaves their bytes
+  /// unchanged. A-label domains are fully validated through IDNA. Unicode
+  /// domains, Unicode dot separators, and non-canonical A-labels are normalized
+  /// to IDNA/punycode and returned as [`ParseEmailAddrOutput::Normalized`]
+  /// carrying an [`EmailAddr<Buffer>`].
   #[inline]
-  pub fn try_from_bytes(input: S) -> Result<Either<Self, Buffer>, ParseEmailAddrError>
+  pub fn try_from_bytes(input: S) -> Result<StrictParseOutput<S>, ParseEmailAddrError>
   where
     S: AsRef<[u8]>,
   {
@@ -510,22 +537,31 @@ impl<S> EmailAddr<S> {
       verify_ascii_email_addr(bytes)?;
       let (_, domain) = split_email_addr(bytes)?;
       if !contains_ascii_alabel(domain) {
-        return Ok(Either::Left(Self::from_inner(input)));
+        return Ok(ParseEmailAddrOutput::Original(Self::from_inner(input)));
       }
     }
 
     let mut output = Buffer::new();
     write_normalized_email_addr(bytes, &mut output)?;
-    Ok(Either::Right(output))
+    if output.as_bytes() == bytes {
+      Ok(ParseEmailAddrOutput::Original(Self::from_inner(input)))
+    } else {
+      Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
+        output,
+      )))
+    }
   }
 
   /// Parses an email address from a string.
   ///
-  /// ASCII addresses are returned using the original storage. If the domain-part
-  /// contains non-ASCII Unicode, it is normalized to IDNA/punycode and returned
-  /// as [`Buffer`]. SMTPUTF8 local-parts are preserved as UTF-8.
+  /// Ordinary ASCII, canonical IDNA A-labels, and SMTPUTF8 local-parts are
+  /// returned using the original storage when normalization leaves their bytes
+  /// unchanged. A-label domains are fully validated through IDNA. Unicode
+  /// domains, Unicode dot separators, and non-canonical A-labels are normalized
+  /// to IDNA/punycode and returned as [`ParseEmailAddrOutput::Normalized`]
+  /// carrying an [`EmailAddr<Buffer>`].
   #[inline]
-  pub fn try_from_str(input: S) -> Result<Either<Self, Buffer>, ParseEmailAddrError>
+  pub fn try_from_str(input: S) -> Result<StrictParseOutput<S>, ParseEmailAddrError>
   where
     S: AsRef<str>,
   {
@@ -534,13 +570,19 @@ impl<S> EmailAddr<S> {
       verify_ascii_email_addr(bytes)?;
       let (_, domain) = split_email_addr(bytes)?;
       if !contains_ascii_alabel(domain) {
-        return Ok(Either::Left(Self::from_inner(input)));
+        return Ok(ParseEmailAddrOutput::Original(Self::from_inner(input)));
       }
     }
 
     let mut output = Buffer::new();
     write_normalized_email_addr(bytes, &mut output)?;
-    Ok(Either::Right(output))
+    if output.as_bytes() == bytes {
+      Ok(ParseEmailAddrOutput::Original(Self::from_inner(input)))
+    } else {
+      Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
+        output,
+      )))
+    }
   }
 }
 
@@ -548,9 +590,10 @@ impl<S> EmailAddr<S> {
 impl<S> EmailAddr<S, Relax> {
   /// Parses an email address from bytes with custom parsing options.
   ///
-  /// The returned [`Either::Left`] value preserves the original storage when no
-  /// normalization was needed. [`Either::Right`] contains the normalized stack
-  /// buffer otherwise.
+  /// The [`ParseEmailAddrOutput::Original`] value preserves the original
+  /// storage when the emitted bytes match the input, including canonical
+  /// A-labels and SMTPUTF8 local-parts. [`ParseEmailAddrOutput::Normalized`]
+  /// contains the normalized stack buffer when the emitted bytes differ.
   #[inline]
   pub fn try_from_bytes_with_options(
     input: S,
@@ -563,17 +606,20 @@ impl<S> EmailAddr<S, Relax> {
     let mut output = Buffer::new();
     write_email_addr_with_options(bytes, &mut output, options)?;
     if output.as_bytes() == bytes {
-      Ok(Either::Left(EmailAddr::from_inner(input)))
+      Ok(ParseEmailAddrOutput::Original(EmailAddr::from_inner(input)))
     } else {
-      Ok(Either::Right(EmailAddr::from_inner(output)))
+      Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
+        output,
+      )))
     }
   }
 
   /// Parses an email address from a string with custom parsing options.
   ///
-  /// The returned [`Either::Left`] value preserves the original storage when no
-  /// normalization was needed. [`Either::Right`] contains the normalized stack
-  /// buffer otherwise.
+  /// The [`ParseEmailAddrOutput::Original`] value preserves the original
+  /// storage when the emitted bytes match the input, including canonical
+  /// A-labels and SMTPUTF8 local-parts. [`ParseEmailAddrOutput::Normalized`]
+  /// contains the normalized stack buffer when the emitted bytes differ.
   #[inline]
   pub fn try_from_str_with_options(
     input: S,
@@ -586,9 +632,11 @@ impl<S> EmailAddr<S, Relax> {
     let mut output = Buffer::new();
     write_email_addr_with_options(bytes, &mut output, options)?;
     if output.as_bytes() == bytes {
-      Ok(Either::Left(EmailAddr::from_inner(input)))
+      Ok(ParseEmailAddrOutput::Original(EmailAddr::from_inner(input)))
     } else {
-      Ok(Either::Right(EmailAddr::from_inner(output)))
+      Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
+        output,
+      )))
     }
   }
 }
@@ -621,8 +669,8 @@ impl<'a> TryFrom<&'a str> for EmailAddr<String> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self::from_inner(addr.storage.to_string())),
-      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+      ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(addr.storage.to_string())),
+      ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
     }
   }
 }
@@ -634,8 +682,8 @@ impl TryFrom<String> for EmailAddr<String> {
   #[inline]
   fn try_from(input: String) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input.as_str())? {
-      Either::Left(_) => Ok(Self::from_inner(input)),
-      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+      ParseEmailAddrOutput::Original(_) => Ok(Self::from_inner(input)),
+      ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
     }
   }
 }
@@ -659,8 +707,8 @@ macro_rules! impl_str_storage {
         #[inline]
         fn try_from(input: &'a str) -> Result<Self, Self::Error> {
           match EmailAddr::try_from_str(input)? {
-            Either::Left(addr) => Ok(Self::from_inner(<$ty>::from(addr.storage))),
-            Either::Right(buf) => Ok(Self::from_inner(<$ty>::from(buf.as_str()))),
+            ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(<$ty>::from(addr.storage))),
+            ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(<$ty>::from(addr.into_inner().as_str()))),
           }
         }
       }
@@ -696,8 +744,8 @@ macro_rules! impl_byte_storage {
         #[inline]
         fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
           match EmailAddr::try_from_bytes(input)? {
-            Either::Left(addr) => Ok(Self::from_inner(<$ty>::from(addr.storage))),
-            Either::Right(buf) => Ok(Self::from_inner(<$ty>::from(buf.as_bytes()))),
+            ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(<$ty>::from(addr.storage))),
+            ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(<$ty>::from(addr.into_inner().as_bytes()))),
           }
         }
       }
@@ -737,8 +785,10 @@ impl<'a> TryFrom<&'a str> for EmailAddr<Vec<u8>> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self::from_inner(addr.storage.as_bytes().to_vec())),
-      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+      ParseEmailAddrOutput::Original(addr) => {
+        Ok(Self::from_inner(addr.storage.as_bytes().to_vec()))
+      }
+      ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
     }
   }
 }
@@ -750,8 +800,8 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<Vec<u8>> {
   #[inline]
   fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_bytes(input)? {
-      Either::Left(addr) => Ok(Self::from_inner(addr.storage.to_vec())),
-      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+      ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(addr.storage.to_vec())),
+      ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
     }
   }
 }
@@ -763,8 +813,8 @@ impl TryFrom<Vec<u8>> for EmailAddr<Vec<u8>> {
   #[inline]
   fn try_from(input: Vec<u8>) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_bytes(input.as_slice())? {
-      Either::Left(_) => Ok(Self::from_inner(input)),
-      Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+      ParseEmailAddrOutput::Original(_) => Ok(Self::from_inner(input)),
+      ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
     }
   }
 }
@@ -788,10 +838,10 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(Bytes::copy_from_slice(
+        ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(Bytes::copy_from_slice(
           addr.storage.as_bytes(),
         ))),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -802,8 +852,10 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(Bytes::copy_from_slice(addr.storage))),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Original(addr) => {
+          Ok(Self::from_inner(Bytes::copy_from_slice(addr.storage)))
+        }
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -814,8 +866,8 @@ const _: () = {
     #[inline]
     fn try_from(input: Bytes) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input.as_ref())? {
-        Either::Left(_) => Ok(Self::from_inner(input)),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Original(_) => Ok(Self::from_inner(input)),
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -840,8 +892,10 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(TinyVec::from(addr.storage.as_bytes()))),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Original(addr) => {
+          Ok(Self::from_inner(TinyVec::from(addr.storage.as_bytes())))
+        }
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -852,8 +906,8 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(TinyVec::from(addr.storage))),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(TinyVec::from(addr.storage))),
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -864,8 +918,8 @@ const _: () = {
     #[inline]
     fn try_from(input: TinyVec<[u8; N]>) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input.as_ref())? {
-        Either::Left(_) => Ok(Self::from_inner(input)),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Original(_) => Ok(Self::from_inner(input)),
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -890,10 +944,10 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a str) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_str(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(SmallVec::from_slice(
+        ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(SmallVec::from_slice(
           addr.storage.as_bytes(),
         ))),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -904,8 +958,10 @@ const _: () = {
     #[inline]
     fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input)? {
-        Either::Left(addr) => Ok(Self::from_inner(SmallVec::from_slice(addr.storage))),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Original(addr) => {
+          Ok(Self::from_inner(SmallVec::from_slice(addr.storage)))
+        }
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -916,8 +972,8 @@ const _: () = {
     #[inline]
     fn try_from(input: SmallVec<[u8; N]>) -> Result<Self, Self::Error> {
       match EmailAddr::try_from_bytes(input.as_ref())? {
-        Either::Left(_) => Ok(Self::from_inner(input)),
-        Either::Right(buf) => Ok(Self::from_inner(buf.into())),
+        ParseEmailAddrOutput::Original(_) => Ok(Self::from_inner(input)),
+        ParseEmailAddrOutput::Normalized(addr) => Ok(Self::from_inner(addr.into_inner().into())),
       }
     }
   }
@@ -930,8 +986,10 @@ impl<'a> TryFrom<&'a str> for EmailAddr<Cow<'a, str>> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage))),
-      Either::Right(buf) => Ok(Self::from_inner(Cow::Owned(buf.into()))),
+      ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage))),
+      ParseEmailAddrOutput::Normalized(addr) => {
+        Ok(Self::from_inner(Cow::Owned(addr.into_inner().into())))
+      }
     }
   }
 }
@@ -943,8 +1001,10 @@ impl<'a> TryFrom<&'a [u8]> for EmailAddr<Cow<'a, [u8]>> {
   #[inline]
   fn try_from(input: &'a [u8]) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_bytes(input)? {
-      Either::Left(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage))),
-      Either::Right(buf) => Ok(Self::from_inner(Cow::Owned(buf.into()))),
+      ParseEmailAddrOutput::Original(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage))),
+      ParseEmailAddrOutput::Normalized(addr) => {
+        Ok(Self::from_inner(Cow::Owned(addr.into_inner().into())))
+      }
     }
   }
 }
@@ -956,8 +1016,12 @@ impl<'a> TryFrom<&'a str> for EmailAddr<Cow<'a, [u8]>> {
   #[inline]
   fn try_from(input: &'a str) -> Result<Self, Self::Error> {
     match EmailAddr::try_from_str(input)? {
-      Either::Left(addr) => Ok(Self::from_inner(Cow::Borrowed(addr.storage.as_bytes()))),
-      Either::Right(buf) => Ok(Self::from_inner(Cow::Owned(buf.into()))),
+      ParseEmailAddrOutput::Original(addr) => {
+        Ok(Self::from_inner(Cow::Borrowed(addr.storage.as_bytes())))
+      }
+      ParseEmailAddrOutput::Normalized(addr) => {
+        Ok(Self::from_inner(Cow::Owned(addr.into_inner().into())))
+      }
     }
   }
 }
@@ -998,7 +1062,7 @@ pub fn verify_email_addr_with_options(
 /// limit and 64-byte local-part limit. Use `verify_email_addr` when SMTPUTF8
 /// local-parts or IDNA domain-parts should be accepted.
 pub fn verify_ascii_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> {
-  if input.is_empty() || input.len() > MAX_EMAIL_ADDR_LENGTH || !input.is_ascii() {
+  if input.is_empty() || !input.is_ascii() {
     return Err(ParseEmailAddrError::Address);
   }
 
@@ -1009,6 +1073,11 @@ pub fn verify_ascii_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> 
 
   crate::verify_ascii_local_part(local)?;
   crate::verify_ascii_domain_part(domain)?;
+
+  if input.len() > MAX_EMAIL_ADDR_LENGTH {
+    return Err(ParseEmailAddrError::Address);
+  }
+
   Ok(())
 }
 
@@ -1042,13 +1111,34 @@ fn write_normalized_email_addr(
 
   let (local, domain) = split_email_addr(input)?;
   crate::verify_local_part(local)?;
+  let mut normalized_domain = Buffer::new();
+  let domain_output = if domain.is_ascii() && !contains_ascii_alabel(domain) {
+    crate::verify_ascii_domain_part(domain)?;
+    domain
+  } else {
+    write_normalized_domain_part(domain, &mut normalized_domain)?;
+    normalized_domain.as_bytes()
+  };
+
+  if local
+    .len()
+    .saturating_add(1)
+    .saturating_add(domain_output.len())
+    > MAX_EMAIL_ADDR_LENGTH
+  {
+    return Err(ParseEmailAddrError::Address);
+  }
+
+  // `output` is empty and the complete address length was prechecked above.
   output
     .extend_from_slice(local)
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   output
     .push(b'@')
-    .map_err(|_| ParseEmailAddrError::Address)?;
-  write_normalized_domain_part(domain, output)?;
+    .expect("prechecked email length must fit Buffer");
+  output
+    .extend_from_slice(domain_output)
+    .expect("prechecked email length must fit Buffer");
   Ok(())
 }
 
@@ -1067,13 +1157,34 @@ fn write_email_addr_with_options(
     options.limits().max_local_part_len(),
     options.local().smtp_utf8().is_allow(),
   )?;
+  let mut normalized_domain = Buffer::new();
+  let domain_output = if domain.is_ascii() && !contains_ascii_alabel(domain) {
+    verify_ascii_domain_part_with_options(domain, options.domain())?;
+    domain
+  } else {
+    write_domain_part_with_options(domain, &mut normalized_domain, options.domain())?;
+    normalized_domain.as_bytes()
+  };
+
+  if local
+    .len()
+    .saturating_add(1)
+    .saturating_add(domain_output.len())
+    > MAX_EMAIL_ADDR_LENGTH
+  {
+    return Err(ParseEmailAddrError::Address);
+  }
+
+  // `output` is empty and the complete address length was prechecked above.
   output
     .extend_from_slice(local)
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   output
     .push(b'@')
-    .map_err(|_| ParseEmailAddrError::Address)?;
-  write_domain_part_with_options(domain, output, options.domain())?;
+    .expect("prechecked email length must fit Buffer");
+  output
+    .extend_from_slice(domain_output)
+    .expect("prechecked email length must fit Buffer");
   Ok(())
 }
 

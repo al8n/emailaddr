@@ -26,6 +26,16 @@ impl ParseDomainPartError {
 ///
 /// The domain-part may be either an RFC 5321 `Domain` such as `example.com`, or
 /// an address literal such as `[127.0.0.1]` or `[IPv6:::1]`.
+///
+/// With the `serde` feature, `DomainPart` implements serialization only. It
+/// intentionally does not implement deserialization; read a string or byte
+/// value into storage and validate it with [`DomainPart::try_from_ascii_str`],
+/// [`DomainPart::try_from_ascii_bytes`], or the corresponding `TryFrom` impl.
+///
+/// Equality, ordering, and hashing delegate to the selected storage type. The
+/// built-in string, byte, and [`Buffer`] storages are representation-sensitive
+/// and case-sensitive. DNS case-insensitivity is a protocol property, not a
+/// promise of case-insensitive trait implementations.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct DomainPart<S: ?Sized = str>(pub(crate) S);
@@ -37,18 +47,6 @@ where
   #[inline]
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.write_str(self.0.as_ref())
-  }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<S: ?Sized> zeroize::Zeroize for DomainPart<S>
-where
-  S: zeroize::Zeroize,
-{
-  #[inline]
-  fn zeroize(&mut self) {
-    zeroize::Zeroize::zeroize(&mut self.0);
   }
 }
 
@@ -219,6 +217,14 @@ pub fn verify_ascii_domain_part(input: &[u8]) -> Result<(), ParseDomainPartError
   } else {
     verify_ascii_dns_domain(input)
   }
+}
+
+pub(crate) fn verify_ascii_domain_part_with_options(
+  input: &[u8],
+  options: DomainOptions,
+) -> Result<(), ParseDomainPartError> {
+  verify_ascii_domain_part(input)?;
+  check_domain_qualification(input, options)
 }
 
 /// Verifies that `input` is a valid ASCII DNS domain name.

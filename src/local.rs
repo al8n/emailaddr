@@ -19,6 +19,11 @@ impl ParseLocalPartError {
 /// This type validates the local-part grammar used by [`EmailAddr`](crate::EmailAddr):
 /// dot-atom local-parts such as `user.name`, and quoted strings such as
 /// `"user name"`.
+///
+/// With the `serde` feature, `LocalPart` implements serialization only. It
+/// intentionally does not implement deserialization; read a string or byte
+/// value into storage and validate it with [`LocalPart::try_from_str`],
+/// [`LocalPart::try_from_bytes`], or the corresponding `TryFrom` impl.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct LocalPart<S: ?Sized = str>(pub(crate) S);
@@ -30,18 +35,6 @@ where
   #[inline]
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
     f.write_str(self.0.as_ref())
-  }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl<S: ?Sized> zeroize::Zeroize for LocalPart<S>
-where
-  S: zeroize::Zeroize,
-{
-  #[inline]
-  fn zeroize(&mut self) {
-    zeroize::Zeroize::zeroize(&mut self.0);
   }
 }
 

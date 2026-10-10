@@ -13,11 +13,10 @@ rust-version = "1.86"
 
 [features]
 default = ["std"]
-alloc = ["idna/alloc", "idna/compiled_data", "zeroize?/alloc"]
+alloc = ["dep:idna", "idna/alloc", "idna/compiled_data"]
 serde = ["dep:serde_core"]
-std = ["idna/default", "thiserror/default", "zeroize?/alloc"]
+std = ["dep:idna", "idna/default", "thiserror/default"]
 clap = ["std", "dep:clap"]
-zeroize = ["dep:zeroize"]
 bytes_1 = ["dep:bytes_1", "alloc"]
 bytes = ["bytes_1"]
 smallvec_1 = ["dep:smallvec_1", "alloc", "smallvec_1/const_generics"]
@@ -30,6 +29,7 @@ triomphe_0_1 = ["dep:triomphe_0_1", "alloc"]
 triomphe = ["triomphe_0_1"]
 arbitrary = [
   "dep:arbitrary",
+  "alloc",
   "smallvec_1?/arbitrary",
   "smol_str_0_3?/arbitrary",
   "tinyvec_1?/arbitrary",
@@ -37,7 +37,6 @@ arbitrary = [
 quickcheck = ["dep:quickcheck", "alloc"]
 
 [dependencies]
-either = { version = "1", default-features = false }
 idna = { version = "1", default-features = false, optional = true }
 serde_core = { version = "1", default-features = false, features = ["result"], optional = true }
 thiserror = { version = "2", default-features = false }
@@ -49,10 +48,9 @@ smallvec_1 = { package = "smallvec", version = "1", default-features = false, op
 smol_str_0_3 = { package = "smol_str", version = "0.3", default-features = false, optional = true }
 tinyvec_1 = { package = "tinyvec", version = "1", default-features = false, features = ["rustc_1_61"], optional = true }
 triomphe_0_1 = { package = "triomphe", version = "0.1", default-features = false, optional = true }
-zeroize = { version = "1", default-features = false, optional = true }
 
 [dev-dependencies]
-bincode = "1"
+bincode = "=1.3.3" # Dev-only roundtrip fixture; see deny.toml.
 serde_json = "1"
 toml = "1"
 yaml_serde = "0.10"

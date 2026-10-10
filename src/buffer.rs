@@ -1,13 +1,25 @@
-use core::{borrow::Borrow, fmt, str};
+use core::{
+  borrow::Borrow,
+  fmt,
+  hash::{Hash, Hasher},
+  str,
+};
 
 /// A stack-allocated buffer for a validated email address.
 ///
 /// The buffer stores up to 254 bytes of address data plus one byte for the
 /// current length. This matches the SMTP mailbox length limit used by
 /// [`EmailAddr`](crate::EmailAddr).
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Buffer {
   buf: [u8; 255],
+}
+
+impl Hash for Buffer {
+  #[cfg_attr(not(coverage), inline(always))]
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.as_str().hash(state);
+  }
 }
 
 impl PartialOrd for Buffer {
@@ -49,15 +61,6 @@ impl AsRef<[u8]> for Buffer {
   #[cfg_attr(not(coverage), inline(always))]
   fn as_ref(&self) -> &[u8] {
     self.as_bytes()
-  }
-}
-
-#[cfg(feature = "zeroize")]
-#[cfg_attr(docsrs, doc(cfg(feature = "zeroize")))]
-impl zeroize::Zeroize for Buffer {
-  #[inline]
-  fn zeroize(&mut self) {
-    zeroize::Zeroize::zeroize(&mut self.buf);
   }
 }
 

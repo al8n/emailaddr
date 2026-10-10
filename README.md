@@ -45,7 +45,9 @@ emailaddr = "0.1"
 
 ## Quick Start
 
-```rust,ignore
+```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
 use emailaddr::EmailAddr;
 
 let addr: EmailAddr<String> = "user.name@example.com".parse().unwrap();
@@ -60,11 +62,12 @@ assert_eq!(idn.as_str(), "user@xn--0zwm56d.xn--fiqs8s");
 
 let smtp_utf8: EmailAddr<String> = "用户@example.com".parse().unwrap();
 assert_eq!(smtp_utf8.local_part().as_inner(), &"用户");
+# }
 ```
 
 ## Borrowed DSTs
 
-```rust,ignore
+```rust
 use emailaddr::{DomainPart, EmailAddr, LocalPart};
 
 let addr: &EmailAddr<str> = EmailAddr::try_from_ascii_str("user@example.com").unwrap();
@@ -83,7 +86,9 @@ assert_eq!(domain.as_bytes().as_inner(), b"example.com");
 
 ## Storage
 
-```rust,ignore
+```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
 use emailaddr::{Buffer, EmailAddr};
 use std::sync::Arc;
 
@@ -94,11 +99,49 @@ let stack: EmailAddr<Buffer> = EmailAddr::try_from("user@example.com").unwrap();
 
 assert_eq!(owned.as_str(), shared.as_str());
 assert_eq!(bytes.as_bytes(), stack.as_bytes());
+# }
+```
+
+## Parse output
+
+Allocating parses report whether the original storage was retained or the
+address was normalized into [`Buffer`]. The parser fully validates IDNA
+A-labels; canonical A-labels whose normalized bytes are unchanged remain
+`Original`, while Unicode domains, Unicode dot separators, and non-canonical
+A-labels are reported as `Normalized`:
+
+```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
+use emailaddr::{EmailAddr, ParseEmailAddrOutput};
+
+let output = EmailAddr::<&str>::try_from_str("user@测试.中国").unwrap();
+match output {
+    ParseEmailAddrOutput::Original(_) => unreachable!("Unicode domains normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+        assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s");
+    }
+}
+# }
+```
+
+For example, a canonical A-label keeps its borrowed storage:
+
+```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
+use emailaddr::{EmailAddr, ParseEmailAddrOutput};
+
+let output = EmailAddr::<&str>::try_from_str("user@xn--0zwm56d.xn--fiqs8s").unwrap();
+assert!(matches!(output, ParseEmailAddrOutput::Original(_)));
+# }
 ```
 
 ## Validation Helpers
 
-```rust,ignore
+```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
 use emailaddr::{
     verify_ascii_domain_part,
     verify_ascii_email_addr,
@@ -115,6 +158,7 @@ assert!(verify_ascii_domain_part(b"[IPv6:::1]").is_ok());
 assert!(verify_ascii_email_addr(b"user..name@example.com").is_err());
 assert!(verify_ascii_email_addr(b"user@example_com").is_err());
 assert!(verify_ascii_email_addr(b"user@example.com.").is_err());
+# }
 ```
 
 ## Parsing Options
@@ -124,7 +168,7 @@ explicit non-standard relaxations without changing the default constructors.
 `parse_with_options` is available on `EmailAddr<S, Relax>`, so relaxed parsing
 is visible in the type while ordinary `EmailAddr<S>` remains strict.
 
-```rust,ignore
+```rust
 use emailaddr::{
     Buffer,
     DomainOptions,
@@ -182,9 +226,8 @@ minimum_dns_labels = 2
 |---------|-------------|
 | `std` (default) | Standard library support and IDNA domain normalization |
 | `alloc` | Allocation support without `std`, including IDNA domain normalization |
-| `serde` | `serde_core`-backed serialization/deserialization for addresses, parts, and parsing options; combine with `alloc` or `std` for IDNA-validated A-label deserialization |
+| `serde` | `serde_core`-backed serialization for addresses and parts; strict `EmailAddr` and parsing options also support deserialization, while relaxed `EmailAddr`, `LocalPart`, and `DomainPart` are serialize-only |
 | `clap` | `clap::Args` / `ValueEnum` support for parsing options; CLI flags only, no environment-variable wiring |
-| `zeroize` | `zeroize::Zeroize` support for `Buffer`, `EmailAddr`, `LocalPart`, and `DomainPart` when the selected storage can be wiped |
 | `bytes` / `bytes_1` | `bytes::Bytes` storage support |
 | `smallvec` / `smallvec_1` | `smallvec::SmallVec` byte storage support |
 | `smol_str` / `smol_str_0_3` | `smol_str::SmolStr` storage support |
@@ -193,8 +236,28 @@ minimum_dns_labels = 2
 | `arbitrary` | Invariant-preserving `arbitrary::Arbitrary` impls for owned storage backends |
 | `quickcheck` | Invariant-preserving `quickcheck::Arbitrary` impls for owned storage backends |
 
-Calling `zeroize` clears the underlying storage and intentionally destroys the
-validated-address invariant. Drop or reassign a value after wiping it.
+Enable `alloc` or `std` for IDNA-normalizing strict `EmailAddr` deserialization;
+serde-only/no-alloc deserialization accepts structural ASCII forms and rejects
+A-label domains requiring IDNA validation. `EmailAddr<S, Relax>`, `LocalPart`,
+and `DomainPart` remain serialize-only.
+
+### Serde compatibility
+
+Human-readable Serde uses the validated address string and stable policy names
+(`allow`, `forbid`, `ascii`, `idna`, and `raw`). Binary Serde representations
+are not stable wire formats; support is limited to round trips within the
+current crate version. Strict `EmailAddr` values with supported storage and
+`Options` can deserialize; `EmailAddr<S, Relax>`, `LocalPart`, and `DomainPart`
+only serialize.
+
+## Testing
+
+The parser property suite runs 5,000 QuickCheck cases by default. To reproduce
+the extended review run, use:
+
+```text
+QUICKCHECK_TESTS=50000 cargo test --features quickcheck --test parser_properties
+```
 
 ## RFC Coverage
 
@@ -217,8 +280,8 @@ or SMTP commands; it validates and normalizes address values.
 
 ## License
 
-`emailaddr` is under the terms of both the MIT license and the Apache License
-(Version 2.0).
+`emailaddr` is dual-licensed under your choice of the MIT license or the Apache
+License (Version 2.0).
 
 See [LICENSE-APACHE](LICENSE-APACHE), [LICENSE-MIT](LICENSE-MIT) for details.
 

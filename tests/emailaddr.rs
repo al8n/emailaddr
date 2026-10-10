@@ -1,8 +1,8 @@
 use emailaddr::{
   Buffer, DomainLiteralPolicy, DomainOptions, DomainPart, DomainUnicodePolicy, EmailAddr, Limits,
-  LocalOptions, LocalPart, Options, Relax, SmtpUtf8Policy, verify_ascii_dns_domain,
-  verify_ascii_domain_part, verify_ascii_local_part, verify_email_addr_with_options,
-  verify_local_part,
+  LocalOptions, LocalPart, MAX_DOMAIN_PART_LENGTH, Options, ParseEmailAddrError, Relax,
+  SmtpUtf8Policy, verify_ascii_dns_domain, verify_ascii_domain_part, verify_ascii_local_part,
+  verify_email_addr_with_options, verify_local_part,
 };
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -452,6 +452,91 @@ fn enforces_length_after_domain_normalization() {
   let addr = EmailAddr::<String>::try_from(input.as_str()).unwrap();
   let ascii_label = "a".repeat(63);
   assert_eq!(addr.as_str(), format!("u@{ascii_label}.{ascii_label}"));
+  assert!(verify_email_addr(input.as_bytes()).is_ok());
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[test]
+fn classifies_length_errors_after_component_validation() {
+  fn domain_with_len(length: usize) -> String {
+    let tail_len = length - 192;
+    format!(
+      "{}.{}.{}.{}",
+      "a".repeat(63),
+      "b".repeat(63),
+      "c".repeat(63),
+      "d".repeat(tail_len),
+    )
+  }
+
+  let label63 = format!("{}.com", "a".repeat(63));
+  let label64 = format!("{}.com", "a".repeat(64));
+  assert!(verify_ascii_dns_domain(label63.as_bytes()).is_ok());
+  assert_eq!(
+    verify_ascii_dns_domain(label64.as_bytes())
+      .unwrap_err()
+      .as_str(),
+    "invalid email domain-part"
+  );
+
+  let domain253 = domain_with_len(MAX_DOMAIN_PART_LENGTH);
+  let domain254 = domain_with_len(MAX_DOMAIN_PART_LENGTH + 1);
+  assert!(verify_ascii_dns_domain(domain253.as_bytes()).is_ok());
+  assert_eq!(
+    verify_ascii_dns_domain(domain254.as_bytes())
+      .unwrap_err()
+      .as_str(),
+    "invalid email domain-part"
+  );
+
+  let local65 = format!("{}@example.com", "a".repeat(65));
+  assert!(matches!(
+    EmailAddr::<String>::try_from(local65.as_str()),
+    Err(ParseEmailAddrError::LocalPart(_))
+  ));
+
+  let address254 = format!("a@{}", domain_with_len(252));
+  let address255 = format!("a@{domain253}");
+  assert_eq!(address254.len(), MAX_EMAIL_ADDR_LENGTH);
+  assert_eq!(address255.len(), MAX_EMAIL_ADDR_LENGTH + 1);
+  assert!(EmailAddr::<String>::try_from(address254.as_str()).is_ok());
+  assert!(verify_ascii_email_addr(address254.as_bytes()).is_ok());
+  assert!(matches!(
+    EmailAddr::<String>::try_from(address255.as_str()),
+    Err(ParseEmailAddrError::Address)
+  ));
+  assert!(matches!(
+    verify_email_addr(address255.as_bytes()),
+    Err(ParseEmailAddrError::Address)
+  ));
+
+  let options = Options::new();
+  assert!(matches!(
+    EmailAddr::<Buffer, Relax>::parse_with_options(address255.as_str(), options),
+    Err(ParseEmailAddrError::Address)
+  ));
+  assert!(matches!(
+    verify_email_addr_with_options(address255.as_bytes(), options),
+    Err(ParseEmailAddrError::Address)
+  ));
+
+  let unicode_label = "ａ".repeat(63);
+  let unicode_domain = format!(
+    "{unicode_label}.{}.{}.{}",
+    "ｂ".repeat(63),
+    "ｃ".repeat(63),
+    "ｄ".repeat(61),
+  );
+  let unicode_address = format!("a@{unicode_domain}");
+  assert!(unicode_address.len() > MAX_EMAIL_ADDR_LENGTH);
+  assert!(matches!(
+    EmailAddr::<String>::try_from(unicode_address.as_str()),
+    Err(ParseEmailAddrError::Address)
+  ));
+  assert!(matches!(
+    verify_email_addr(unicode_address.as_bytes()),
+    Err(ParseEmailAddrError::Address)
+  ));
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]

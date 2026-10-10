@@ -986,7 +986,7 @@ pub fn verify_email_addr_with_options(
 /// limit and 64-byte local-part limit. Use `verify_email_addr` when SMTPUTF8
 /// local-parts or IDNA domain-parts should be accepted.
 pub fn verify_ascii_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> {
-  if input.is_empty() || input.len() > MAX_EMAIL_ADDR_LENGTH || !input.is_ascii() {
+  if input.is_empty() || !input.is_ascii() {
     return Err(ParseEmailAddrError::Address);
   }
 
@@ -997,6 +997,11 @@ pub fn verify_ascii_email_addr(input: &[u8]) -> Result<(), ParseEmailAddrError> 
 
   crate::verify_ascii_local_part(local)?;
   crate::verify_ascii_domain_part(domain)?;
+
+  if input.len() > MAX_EMAIL_ADDR_LENGTH {
+    return Err(ParseEmailAddrError::Address);
+  }
+
   Ok(())
 }
 
@@ -1030,13 +1035,27 @@ fn write_normalized_email_addr(
 
   let (local, domain) = split_email_addr(input)?;
   crate::verify_local_part(local)?;
+  let mut normalized_domain = Buffer::new();
+  write_normalized_domain_part(domain, &mut normalized_domain)?;
+
+  if local
+    .len()
+    .saturating_add(1)
+    .saturating_add(normalized_domain.as_bytes().len())
+    > MAX_EMAIL_ADDR_LENGTH
+  {
+    return Err(ParseEmailAddrError::Address);
+  }
+
   output
     .extend_from_slice(local)
     .map_err(|_| ParseEmailAddrError::Address)?;
   output
     .push(b'@')
     .map_err(|_| ParseEmailAddrError::Address)?;
-  write_normalized_domain_part(domain, output)?;
+  output
+    .extend_from_slice(normalized_domain.as_bytes())
+    .map_err(|_| ParseEmailAddrError::Address)?;
   Ok(())
 }
 
@@ -1055,13 +1074,27 @@ fn write_email_addr_with_options(
     options.limits().max_local_part_len(),
     options.local().smtp_utf8().is_allow(),
   )?;
+  let mut normalized_domain = Buffer::new();
+  write_domain_part_with_options(domain, &mut normalized_domain, options.domain())?;
+
+  if local
+    .len()
+    .saturating_add(1)
+    .saturating_add(normalized_domain.as_bytes().len())
+    > MAX_EMAIL_ADDR_LENGTH
+  {
+    return Err(ParseEmailAddrError::Address);
+  }
+
   output
     .extend_from_slice(local)
     .map_err(|_| ParseEmailAddrError::Address)?;
   output
     .push(b'@')
     .map_err(|_| ParseEmailAddrError::Address)?;
-  write_domain_part_with_options(domain, output, options.domain())?;
+  output
+    .extend_from_slice(normalized_domain.as_bytes())
+    .map_err(|_| ParseEmailAddrError::Address)?;
   Ok(())
 }
 

@@ -46,6 +46,8 @@ emailaddr = "0.1"
 ## Quick Start
 
 ```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
 use emailaddr::EmailAddr;
 
 let addr: EmailAddr<String> = "user.name@example.com".parse().unwrap();
@@ -60,6 +62,7 @@ assert_eq!(idn.as_str(), "user@xn--0zwm56d.xn--fiqs8s");
 
 let smtp_utf8: EmailAddr<String> = "用户@example.com".parse().unwrap();
 assert_eq!(smtp_utf8.local_part().as_inner(), &"用户");
+# }
 ```
 
 ## Borrowed DSTs
@@ -84,6 +87,8 @@ assert_eq!(domain.as_bytes().as_inner(), b"example.com");
 ## Storage
 
 ```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
 use emailaddr::{Buffer, EmailAddr};
 use std::sync::Arc;
 
@@ -94,11 +99,14 @@ let stack: EmailAddr<Buffer> = EmailAddr::try_from("user@example.com").unwrap();
 
 assert_eq!(owned.as_str(), shared.as_str());
 assert_eq!(bytes.as_bytes(), stack.as_bytes());
+# }
 ```
 
 ## Validation Helpers
 
 ```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
 use emailaddr::{
     verify_ascii_domain_part,
     verify_ascii_email_addr,
@@ -115,6 +123,7 @@ assert!(verify_ascii_domain_part(b"[IPv6:::1]").is_ok());
 assert!(verify_ascii_email_addr(b"user..name@example.com").is_err());
 assert!(verify_ascii_email_addr(b"user@example_com").is_err());
 assert!(verify_ascii_email_addr(b"user@example.com.").is_err());
+# }
 ```
 
 ## Parsing Options

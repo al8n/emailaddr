@@ -5,7 +5,7 @@ maintainer to review the final commit, tag, and registry release settings.
 
 ## Scope and API
 
-- [ ] Confirm the `1.0.0` version and release notes are finalized.
+- [ ] Confirm the package version and release notes are finalized.
 - [ ] Review the public API and semver report against the previous release.
 - [ ] Confirm parser, storage, serde, IDNA, and no-alloc contracts are documented.
 - [ ] Confirm the copyright owner and year in `LICENSE-MIT`: Al Liu, 2026.
@@ -13,8 +13,7 @@ maintainer to review the final commit, tag, and registry release settings.
 - [ ] Confirm the crates.io trusted publisher matches this repository, release
   workflow, and intended publishing environment.
 - [ ] Confirm the GitHub `crates-io` environment name and protection rules.
-- [ ] Confirm `main` and release-tag branch protection before the first `1.0.0`
-  release.
+- [ ] Confirm `main` and release-tag branch protection before creating the release tag.
 
 ## Verification
 
@@ -28,8 +27,8 @@ maintainer to review the final commit, tag, and registry release settings.
 ## Release and follow-up
 
 - [ ] Review the changelog, README, docs, and package metadata one final time.
-- [ ] Run `workflow_dispatch` in dry-run mode and confirm publish and release
-  steps are skipped.
+- [ ] Run `workflow_dispatch` with `tag=v<package-version>` in dry-run mode and
+  confirm the publish and GitHub release jobs are skipped.
 - [ ] Create the release tag only from the reviewed commit.
 - [ ] Publish through the approved registry/release process.
 - [ ] Verify the published checksum and OIDC provenance attestation.

@@ -40,6 +40,14 @@ remain strict ASCII validators.
 
 ```toml
 [dependencies]
+emailaddr = "=1.0.0-rc.1"
+```
+
+This README targets the unpublished `1.0.0-rc.1` release candidate; it is not
+yet available on crates.io. For the stable `0.1` line, use:
+
+```toml
+[dependencies]
 emailaddr = "0.1"
 ```
 

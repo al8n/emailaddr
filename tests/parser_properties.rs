@@ -3,8 +3,9 @@
 use std::{format, string::String, vec::Vec};
 
 use emailaddr::{
-  Buffer, DomainPart, EmailAddr, LocalPart, verify_ascii_dns_domain, verify_ascii_domain_part,
-  verify_ascii_email_addr, verify_ascii_local_part, verify_email_addr, verify_local_part,
+  Buffer, DomainPart, EmailAddr, LocalPart, Options, verify_ascii_dns_domain,
+  verify_ascii_domain_part, verify_ascii_email_addr, verify_ascii_local_part, verify_email_addr,
+  verify_email_addr_with_options, verify_local_part,
 };
 use quickcheck::{QuickCheck, Testable};
 
@@ -23,6 +24,7 @@ fn arbitrary_bytes_are_panic_free(input: Vec<u8>) -> bool {
   let _ = verify_local_part(&input);
   let _ = verify_ascii_domain_part(&input);
   let _ = verify_ascii_dns_domain(&input);
+  let _ = verify_email_addr_with_options(&input, Options::new());
   let _ = EmailAddr::<Buffer>::try_from(input.as_slice());
   let _ = EmailAddr::<[u8]>::try_from_ascii_bytes(input.as_slice());
   let _ = LocalPart::<&[u8]>::try_from(input.as_slice());
@@ -49,14 +51,20 @@ fn generated_buffer_addresses_roundtrip_and_are_idempotent() {
 #[test]
 fn normalization_corpus_is_deterministic_and_idempotent() {
   for (input, expected) in [
+    ("user@example.com", "user@example.com"),
     ("user@测试.中国", "user@xn--0zwm56d.xn--fiqs8s"),
+    ("user@测试。中国", "user@xn--0zwm56d.xn--fiqs8s"),
     ("用户@example.com", "用户@example.com"),
     ("a@bücher.example", "a@xn--bcher-kva.example"),
+    ("\"user name\"@example.com", "\"user name\"@example.com"),
+    ("user@[192.0.2.1]", "user@[192.0.2.1]"),
+    ("user@[IPv6:::1]", "user@[IPv6:::1]"),
   ] {
     let address: EmailAddr<String> = EmailAddr::try_from(input).unwrap();
     assert_eq!(address.as_str(), expected);
 
     let reparsed: EmailAddr<String> = EmailAddr::try_from(address.as_str()).unwrap();
+    assert_eq!(reparsed, address);
     assert_eq!(reparsed.as_str(), expected);
   }
 }

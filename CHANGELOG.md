@@ -54,14 +54,14 @@ available on crates.io.
 
 - Publish `zeroize` support for `Buffer`, `EmailAddr`, `LocalPart`, and
   `DomainPart` through the opt-in feature and storage bounds.
-- Move the crate to edition 2024 while setting the minimum supported Rust
-  version to 1.86.
+- Move the crate to edition 2024 while retaining the minimum supported Rust
+  version of 1.86.
 - Add crates.io categories and keywords, and expand the documentation of the
   zero-copy storage model.
 - Loosen the `smol_str` dependency requirement from exact `0.3.2` to the
   compatible `0.3` series.
-- Refresh documentation, feature metadata, CI/coverage maintenance, and
-  regression tests.
+- Refresh documentation, feature metadata, coverage tests, and regression
+  tests.
 
 # 0.1.0
 

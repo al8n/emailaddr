@@ -377,6 +377,12 @@ fn covers_alloc_storage_conversions() {
     b"user@example.com"
   );
   assert_eq!(
+    EmailAddr::<Buffer>::try_from(b"user@example.com".as_slice())
+      .unwrap()
+      .as_bytes(),
+    b"user@example.com"
+  );
+  assert_eq!(
     EmailAddr::<String>::from_str("user@example.com")
       .unwrap()
       .as_str(),
@@ -592,6 +598,12 @@ fn covers_tinyvec_storage() {
       .as_bytes(),
     b"user@example.com"
   );
+  assert_eq!(
+    EmailAddr::<tinyvec_1::TinyVec<[u8; 32]>>::try_from(b"user@example.com".as_slice())
+      .unwrap()
+      .as_bytes(),
+    b"user@example.com"
+  );
   let _: EmailAddr<tinyvec_1::TinyVec<[u8; 32]>> = "user@example.com".parse().unwrap();
   assert_eq!(
     EmailAddr::<tinyvec_1::TinyVec<[u8; 64]>>::try_from("user@测试.中国")
@@ -625,6 +637,12 @@ fn covers_smallvec_storage() {
   let owned = smallvec_1::SmallVec::<[u8; 32]>::from_slice(b"user@example.com");
   assert_eq!(
     EmailAddr::<smallvec_1::SmallVec<[u8; 32]>>::try_from(owned)
+      .unwrap()
+      .as_bytes(),
+    b"user@example.com"
+  );
+  assert_eq!(
+    EmailAddr::<smallvec_1::SmallVec<[u8; 32]>>::try_from(b"user@example.com".as_slice())
       .unwrap()
       .as_bytes(),
     b"user@example.com"

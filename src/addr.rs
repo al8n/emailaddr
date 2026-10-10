@@ -1129,15 +1129,16 @@ fn write_normalized_email_addr(
     return Err(ParseEmailAddrError::Address);
   }
 
+  // `output` is empty and the complete address length was prechecked above.
   output
     .extend_from_slice(local)
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   output
     .push(b'@')
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   output
     .extend_from_slice(domain_output)
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   Ok(())
 }
 
@@ -1174,15 +1175,16 @@ fn write_email_addr_with_options(
     return Err(ParseEmailAddrError::Address);
   }
 
+  // `output` is empty and the complete address length was prechecked above.
   output
     .extend_from_slice(local)
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   output
     .push(b'@')
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   output
     .extend_from_slice(domain_output)
-    .map_err(|_| ParseEmailAddrError::Address)?;
+    .expect("prechecked email length must fit Buffer");
   Ok(())
 }
 

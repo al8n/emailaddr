@@ -68,6 +68,30 @@ fn validates_common_addresses() {
   );
 }
 
+#[cfg(feature = "std")]
+#[test]
+fn buffer_hash_matches_borrowed_str_hash() {
+  use core::{
+    borrow::Borrow,
+    hash::{Hash, Hasher},
+  };
+  use std::collections::{HashMap, hash_map::DefaultHasher};
+
+  let buffer: Buffer = EmailAddr::try_from("user@example.com")
+    .unwrap()
+    .into_inner();
+
+  let mut buffer_hasher = DefaultHasher::new();
+  buffer.hash(&mut buffer_hasher);
+  let mut str_hasher = DefaultHasher::new();
+  <Buffer as Borrow<str>>::borrow(&buffer).hash(&mut str_hasher);
+  assert_eq!(buffer_hasher.finish(), str_hasher.finish());
+
+  let mut values = HashMap::new();
+  values.insert(buffer, 1_u8);
+  assert_eq!(values.get::<str>("user@example.com"), Some(&1));
+}
+
 #[test]
 fn rejects_rfc5322_display_names_and_address_lists() {
   for input in [
@@ -513,38 +537,6 @@ fn supports_storage_backends() {
   assert_eq!(rc.as_str(), boxed.as_str());
   assert_eq!(boxed.as_str(), cow.as_str());
   assert_eq!(bytes.as_bytes(), stack.as_bytes());
-}
-
-#[cfg(feature = "zeroize")]
-#[test]
-fn supports_zeroize_for_stack_storage() {
-  fn assert_zeroize<T: ?Sized + zeroize::Zeroize>() {}
-
-  assert_zeroize::<Buffer>();
-  assert_zeroize::<EmailAddr<Buffer>>();
-  assert_zeroize::<EmailAddr<[u8]>>();
-  assert_zeroize::<LocalPart<[u8]>>();
-  assert_zeroize::<DomainPart<[u8]>>();
-
-  let mut addr: EmailAddr<Buffer> = EmailAddr::try_from("user@example.com").unwrap();
-  assert_eq!(addr.as_bytes(), b"user@example.com");
-
-  zeroize::Zeroize::zeroize(&mut addr);
-  assert_eq!(addr.as_inner().as_bytes(), b"");
-}
-
-#[cfg(all(feature = "zeroize", any(feature = "alloc", feature = "std")))]
-#[test]
-fn supports_zeroize_for_owned_storage() {
-  fn assert_zeroize<T: ?Sized + zeroize::Zeroize>() {}
-
-  assert_zeroize::<EmailAddr<String>>();
-
-  let mut addr: EmailAddr<String> = "user@example.com".parse().unwrap();
-  assert_eq!(addr.as_str(), "user@example.com");
-
-  zeroize::Zeroize::zeroize(&mut addr);
-  assert!(addr.as_inner().is_empty());
 }
 
 #[cfg(any(

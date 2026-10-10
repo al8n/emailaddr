@@ -182,9 +182,8 @@ minimum_dns_labels = 2
 |---------|-------------|
 | `std` (default) | Standard library support and IDNA domain normalization |
 | `alloc` | Allocation support without `std`, including IDNA domain normalization |
-| `serde` | `serde_core`-backed serialization/deserialization for addresses, parts, and parsing options; combine with `alloc` or `std` for IDNA-validated A-label deserialization |
+| `serde` | `serde_core`-backed serialization for addresses and parts; `EmailAddr` and parsing options also support deserialization, while `LocalPart` and `DomainPart` are serialize-only |
 | `clap` | `clap::Args` / `ValueEnum` support for parsing options; CLI flags only, no environment-variable wiring |
-| `zeroize` | `zeroize::Zeroize` support for `Buffer`, `EmailAddr`, `LocalPart`, and `DomainPart` when the selected storage can be wiped |
 | `bytes` / `bytes_1` | `bytes::Bytes` storage support |
 | `smallvec` / `smallvec_1` | `smallvec::SmallVec` byte storage support |
 | `smol_str` / `smol_str_0_3` | `smol_str::SmolStr` storage support |
@@ -192,9 +191,6 @@ minimum_dns_labels = 2
 | `triomphe` / `triomphe_0_1` | `triomphe::Arc<str>` and `triomphe::Arc<[u8]>` storage support |
 | `arbitrary` | Invariant-preserving `arbitrary::Arbitrary` impls for owned storage backends |
 | `quickcheck` | Invariant-preserving `quickcheck::Arbitrary` impls for owned storage backends |
-
-Calling `zeroize` clears the underlying storage and intentionally destroys the
-validated-address invariant. Drop or reassign a value after wiping it.
 
 ## RFC Coverage
 

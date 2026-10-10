@@ -5,6 +5,11 @@
 - Remove the zeroize integration because wiping a validated wrapper leaves its
   value in a state that violates the type's invariant. Drop or reassign the
   value instead of mutating it into an invalid state.
+- Make IDNA activation explicit through the `alloc` and `std` features and make
+  `arbitrary` include `alloc` so its invariant-preserving generators are
+  available whenever that feature is selected.
+- Pin the bincode development dependency to `=1.3.3`; the corresponding
+  advisory rationale is recorded in `deny.toml`.
 
 # 0.1.0
 

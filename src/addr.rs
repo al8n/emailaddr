@@ -28,16 +28,19 @@ use crate::domain::write_normalized_domain_part;
 /// The maximum email address length accepted by this crate.
 pub const MAX_EMAIL_ADDR_LENGTH: usize = 254;
 
-/// Result of an allocating parse that either preserves the original storage or
-/// returns a normalized stack buffer.
+/// Result of a parse that may normalize into a stack buffer.
+///
+/// The parser compares the emitted representation with the input and preserves
+/// the caller's storage whenever those bytes are unchanged. This includes
+/// ordinary ASCII, canonical IDNA A-labels, and SMTPUTF8 local-parts.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "alloc", feature = "std"))))]
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum ParseEmailAddrOutput<S, P = Strict> {
-  /// The original storage was already in the final representation.
+  /// The emitted representation matched the input, so the original storage is preserved.
   Original(EmailAddr<S, P>),
-  /// The input was normalized into stack storage.
+  /// The emitted representation differs from the input and is stored in [`Buffer`].
   Normalized(EmailAddr<Buffer, P>),
 }
 
@@ -96,6 +99,13 @@ impl ParseEmailAddrError {
 /// case-folded, and DNS case-insensitivity does not make `User@Example.com`
 /// equal to `User@example.com`. Different text spellings of an address literal
 /// are likewise not required to compare equal.
+///
+/// With the `serde` feature, `EmailAddr` implements `Serialize` for supported
+/// storage types and strict `EmailAddr` forms implement `Deserialize` where
+/// storage permits. `EmailAddr<S, Relax>` is serialize-only. Human-readable
+/// serialization is the validated address string; binary representations are
+/// not stable across crate versions and only current-version round trips are
+/// supported.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct EmailAddr<S: ?Sized = str, P = Strict> {
@@ -511,10 +521,12 @@ impl EmailAddr<Buffer, Relax> {
 impl<S> EmailAddr<S> {
   /// Parses an email address from bytes.
   ///
-  /// ASCII addresses are returned using the original storage. If the domain-part
-  /// contains non-ASCII Unicode, it is normalized to IDNA/punycode and returned
-  /// as [`ParseEmailAddrOutput::Normalized`] carrying an [`EmailAddr<Buffer>`].
-  /// SMTPUTF8 local-parts are preserved as UTF-8.
+  /// Ordinary ASCII, canonical IDNA A-labels, and SMTPUTF8 local-parts are
+  /// returned using the original storage when normalization leaves their bytes
+  /// unchanged. A-label domains are fully validated through IDNA. Unicode
+  /// domains, Unicode dot separators, and non-canonical A-labels are normalized
+  /// to IDNA/punycode and returned as [`ParseEmailAddrOutput::Normalized`]
+  /// carrying an [`EmailAddr<Buffer>`].
   #[inline]
   pub fn try_from_bytes(input: S) -> Result<StrictParseOutput<S>, ParseEmailAddrError>
   where
@@ -531,17 +543,23 @@ impl<S> EmailAddr<S> {
 
     let mut output = Buffer::new();
     write_normalized_email_addr(bytes, &mut output)?;
-    Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
-      output,
-    )))
+    if output.as_bytes() == bytes {
+      Ok(ParseEmailAddrOutput::Original(Self::from_inner(input)))
+    } else {
+      Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
+        output,
+      )))
+    }
   }
 
   /// Parses an email address from a string.
   ///
-  /// ASCII addresses are returned using the original storage. If the domain-part
-  /// contains non-ASCII Unicode, it is normalized to IDNA/punycode and returned
-  /// as [`ParseEmailAddrOutput::Normalized`] carrying an [`EmailAddr<Buffer>`].
-  /// SMTPUTF8 local-parts are preserved as UTF-8.
+  /// Ordinary ASCII, canonical IDNA A-labels, and SMTPUTF8 local-parts are
+  /// returned using the original storage when normalization leaves their bytes
+  /// unchanged. A-label domains are fully validated through IDNA. Unicode
+  /// domains, Unicode dot separators, and non-canonical A-labels are normalized
+  /// to IDNA/punycode and returned as [`ParseEmailAddrOutput::Normalized`]
+  /// carrying an [`EmailAddr<Buffer>`].
   #[inline]
   pub fn try_from_str(input: S) -> Result<StrictParseOutput<S>, ParseEmailAddrError>
   where
@@ -558,9 +576,13 @@ impl<S> EmailAddr<S> {
 
     let mut output = Buffer::new();
     write_normalized_email_addr(bytes, &mut output)?;
-    Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
-      output,
-    )))
+    if output.as_bytes() == bytes {
+      Ok(ParseEmailAddrOutput::Original(Self::from_inner(input)))
+    } else {
+      Ok(ParseEmailAddrOutput::Normalized(EmailAddr::from_inner(
+        output,
+      )))
+    }
   }
 }
 

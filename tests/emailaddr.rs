@@ -754,12 +754,39 @@ fn parse_output_enum_preserves_exact_variants_and_storage() {
     EmailAddr::<&[u8]>::try_from_bytes(b"user@example.com").unwrap();
   assert!(matches!(bytes_original, ParseEmailAddrOutput::Original(_)));
 
+  let canonical_alabel = "user@xn--0zwm56d.xn--fiqs8s";
+  let canonical_str: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str(canonical_alabel).unwrap();
+  assert!(matches!(canonical_str, ParseEmailAddrOutput::Original(_)));
+
+  let canonical_bytes: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes(canonical_alabel.as_bytes()).unwrap();
+  assert!(matches!(canonical_bytes, ParseEmailAddrOutput::Original(_)));
+
+  let smtp_utf8 = "用户@example.com";
+  let smtp_str: StrictParseOutput<&str> = EmailAddr::<&str>::try_from_str(smtp_utf8).unwrap();
+  assert!(matches!(smtp_str, ParseEmailAddrOutput::Original(_)));
+
+  let smtp_bytes: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes(smtp_utf8.as_bytes()).unwrap();
+  assert!(matches!(smtp_bytes, ParseEmailAddrOutput::Original(_)));
+
   let bytes_normalized: StrictParseOutput<&[u8]> =
     EmailAddr::<&[u8]>::try_from_bytes("user@测试.中国".as_bytes()).unwrap();
   assert!(matches!(
     bytes_normalized,
     ParseEmailAddrOutput::Normalized(_)
   ));
+
+  let unicode_dot: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str("user@example．com").unwrap();
+  match unicode_dot {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode dot should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => assert_eq!(addr.as_str(), "user@example.com"),
+  }
+
+  assert!(EmailAddr::<&str>::try_from_str("user@xn--55555577.com").is_err());
+  assert!(EmailAddr::<&[u8]>::try_from_bytes(b"user@xn--55555577.com").is_err());
 
   let relaxed_original: RelaxedParseOutput<String> =
     EmailAddr::<String, Relax>::try_from_str_with_options(
@@ -772,6 +799,18 @@ fn parse_output_enum_preserves_exact_variants_and_storage() {
     ParseEmailAddrOutput::Original(_)
   ));
 
+  let relaxed_canonical: RelaxedParseOutput<&str> =
+    EmailAddr::<&str, Relax>::try_from_str_with_options(canonical_alabel, Options::new()).unwrap();
+  assert!(matches!(
+    relaxed_canonical,
+    ParseEmailAddrOutput::Original(_)
+  ));
+
+  let relaxed_smtp: RelaxedParseOutput<&[u8]> =
+    EmailAddr::<&[u8], Relax>::try_from_bytes_with_options(smtp_utf8.as_bytes(), Options::new())
+      .unwrap();
+  assert!(matches!(relaxed_smtp, ParseEmailAddrOutput::Original(_)));
+
   let relaxed_normalized: RelaxedParseOutput<String> =
     EmailAddr::<String, Relax>::try_from_str_with_options(
       String::from("user@测试.中国"),
@@ -783,6 +822,19 @@ fn parse_output_enum_preserves_exact_variants_and_storage() {
     ParseEmailAddrOutput::Normalized(_)
   ));
 
+  let relaxed_unicode_dot: RelaxedParseOutput<&str> =
+    EmailAddr::<&str, Relax>::try_from_str_with_options("user@example．com", Options::new())
+      .unwrap();
+  match relaxed_unicode_dot {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode dot should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => assert_eq!(addr.as_str(), "user@example.com"),
+  }
+
+  assert!(
+    EmailAddr::<&str, Relax>::try_from_str_with_options("user@xn--55555577.com", Options::new(),)
+      .is_err()
+  );
+
   let owned = String::from("user@example.com");
   let pointer = owned.as_ptr();
   match EmailAddr::<String>::try_from_str(owned).unwrap() {
@@ -790,11 +842,27 @@ fn parse_output_enum_preserves_exact_variants_and_storage() {
     ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
   }
 
+  let owned_canonical = String::from(canonical_alabel);
+  let canonical_pointer = owned_canonical.as_ptr();
+  match EmailAddr::<String>::try_from_str(owned_canonical).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_inner().as_ptr(), canonical_pointer),
+    ParseEmailAddrOutput::Normalized(_) => panic!("canonical A-label should preserve storage"),
+  }
+
   let owned_bytes = b"user@example.com".to_vec();
   let bytes_pointer = owned_bytes.as_ptr();
   match EmailAddr::<Vec<u8>>::try_from_bytes(owned_bytes).unwrap() {
     ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_inner().as_ptr(), bytes_pointer),
     ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
+  }
+
+  let owned_smtp_bytes = smtp_utf8.as_bytes().to_vec();
+  let smtp_bytes_pointer = owned_smtp_bytes.as_ptr();
+  match EmailAddr::<Vec<u8>>::try_from_bytes(owned_smtp_bytes).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => {
+      assert_eq!(addr.as_inner().as_ptr(), smtp_bytes_pointer)
+    }
+    ParseEmailAddrOutput::Normalized(_) => panic!("SMTPUTF8 address should preserve storage"),
   }
 
   let relaxed_bytes_original: RelaxedParseOutput<Vec<u8>> =
@@ -1024,6 +1092,7 @@ fn parse_options_do_not_launder_relaxed_values_as_strict_parts() {
 #[test]
 fn supports_serde_core_for_stack_storage() {
   assert_serde::<EmailAddr<Buffer>>();
+  assert_serialize::<EmailAddr<Buffer, Relax>>();
   assert_serialize::<LocalPart<&str>>();
   assert_serialize::<DomainPart<&str>>();
   assert_serde::<Options>();
@@ -1033,6 +1102,13 @@ fn supports_serde_core_for_stack_storage() {
   assert_serde::<SmtpUtf8Policy>();
   assert_serde::<DomainLiteralPolicy>();
   assert_serde::<DomainUnicodePolicy>();
+
+  let relaxed =
+    EmailAddr::<Buffer, Relax>::parse_with_options("user@example.com", Options::new()).unwrap();
+  assert_eq!(
+    serde_json::to_string(&relaxed).unwrap(),
+    r#""user@example.com""#
+  );
 }
 
 #[cfg(feature = "serde")]

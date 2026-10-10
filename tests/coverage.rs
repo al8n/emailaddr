@@ -280,11 +280,11 @@ fn covers_idna_and_relaxed_domain_branches() {
   assert!(EmailAddr::<String>::try_from("user@.测试").is_err());
 
   match EmailAddr::<&[u8]>::try_from_bytes(b"user@xn--0zwm56d.xn--fiqs8s".as_slice()).unwrap() {
-    ParseEmailAddrOutput::Original(_) => {
-      panic!("ASCII A-label should be normalized before acceptance")
+    ParseEmailAddrOutput::Original(addr) => {
+      assert_eq!(addr.as_inner(), b"user@xn--0zwm56d.xn--fiqs8s")
     }
-    ParseEmailAddrOutput::Normalized(addr) => {
-      assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s")
+    ParseEmailAddrOutput::Normalized(_) => {
+      panic!("canonical ASCII A-label should preserve the original storage")
     }
   }
 

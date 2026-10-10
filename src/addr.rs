@@ -513,7 +513,8 @@ impl<S> EmailAddr<S> {
   ///
   /// ASCII addresses are returned using the original storage. If the domain-part
   /// contains non-ASCII Unicode, it is normalized to IDNA/punycode and returned
-  /// as [`Buffer`]. SMTPUTF8 local-parts are preserved as UTF-8.
+  /// as [`ParseEmailAddrOutput::Normalized`] carrying an [`EmailAddr<Buffer>`].
+  /// SMTPUTF8 local-parts are preserved as UTF-8.
   #[inline]
   pub fn try_from_bytes(input: S) -> Result<StrictParseOutput<S>, ParseEmailAddrError>
   where
@@ -539,7 +540,8 @@ impl<S> EmailAddr<S> {
   ///
   /// ASCII addresses are returned using the original storage. If the domain-part
   /// contains non-ASCII Unicode, it is normalized to IDNA/punycode and returned
-  /// as [`Buffer`]. SMTPUTF8 local-parts are preserved as UTF-8.
+  /// as [`ParseEmailAddrOutput::Normalized`] carrying an [`EmailAddr<Buffer>`].
+  /// SMTPUTF8 local-parts are preserved as UTF-8.
   #[inline]
   pub fn try_from_str(input: S) -> Result<StrictParseOutput<S>, ParseEmailAddrError>
   where

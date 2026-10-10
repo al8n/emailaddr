@@ -790,6 +790,37 @@ fn parse_output_enum_preserves_exact_variants_and_storage() {
     ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
   }
 
+  let owned_bytes = b"user@example.com".to_vec();
+  let bytes_pointer = owned_bytes.as_ptr();
+  match EmailAddr::<Vec<u8>>::try_from_bytes(owned_bytes).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_inner().as_ptr(), bytes_pointer),
+    ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
+  }
+
+  let relaxed_bytes_original: RelaxedParseOutput<Vec<u8>> =
+    EmailAddr::<Vec<u8>, Relax>::try_from_bytes_with_options(
+      b"user@example.com".to_vec(),
+      Options::new(),
+    )
+    .unwrap();
+  assert!(matches!(
+    relaxed_bytes_original,
+    ParseEmailAddrOutput::Original(addr) if addr.as_inner().as_slice() == b"user@example.com"
+  ));
+
+  let relaxed_bytes_normalized: RelaxedParseOutput<Vec<u8>> =
+    EmailAddr::<Vec<u8>, Relax>::try_from_bytes_with_options(
+      "user@测试.中国".as_bytes().to_vec(),
+      Options::new(),
+    )
+    .unwrap();
+  match relaxed_bytes_normalized {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode domain should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+      assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s")
+    }
+  }
+
   let borrowed: Cow<'static, str> = Cow::Borrowed("user@example.com");
   match EmailAddr::<Cow<'static, str>>::try_from_str(borrowed).unwrap() {
     ParseEmailAddrOutput::Original(addr) => {

@@ -42,21 +42,26 @@ available on crates.io.
 - Select `alloc` or `std` when deserializing IDNA-normalized addresses. A
   serde-only/no-alloc build accepts structural ASCII forms and rejects A-label
   domains that require IDNA validation.
-- The `zeroize` support was an unpublished development experiment after the
-  0.1.1 release and was never part of the published 0.1.x API; no published
-  API migration is required for it.
+- The published `zeroize` feature and API from 0.1.1 are removed in RC1.
+  In-place wiping leaves validated wrappers invalid, and safe accessors can
+  panic afterward. Stop enabling `zeroize`; if owned raw storage must be
+  wiped, extract it with `into_inner` only after the value reaches end of use,
+  or use separate drop-time secret storage.
 - The 1.0 API keeps the dual MIT/Apache-2.0 licensing choice and documents
   storage-defined trait semantics explicitly.
 
 # 0.1.1 - 2026-06-30
 
-- Add `serde_core` support for validated addresses, supported storage forms,
-  and parsing options.
-- Add policy-driven parsing through `Options` and the explicit `Relax` type,
-  including SMTPUTF8, domain-literal, Unicode-domain, and length policies.
-- Add `clap` support for parsing options and policy values.
-- Expand generic, borrowed, and optional storage backends with no-std/no-alloc
-  feature coverage and validation tests.
+- Publish `zeroize` support for `Buffer`, `EmailAddr`, `LocalPart`, and
+  `DomainPart` through the opt-in feature and storage bounds.
+- Move the crate to edition 2024 while setting the minimum supported Rust
+  version to 1.86.
+- Add crates.io categories and keywords, and expand the documentation of the
+  zero-copy storage model.
+- Loosen the `smol_str` dependency requirement from exact `0.3.2` to the
+  compatible `0.3` series.
+- Refresh documentation, feature metadata, CI/coverage maintenance, and
+  regression tests.
 
 # 0.1.0
 
@@ -64,3 +69,9 @@ available on crates.io.
   stack `Buffer` types.
 - Support RFC-oriented mailbox parsing, ASCII validators, IDNA domain
   normalization, address literals, generic storage, and no-std/no-alloc use.
+- Add `serde_core` support for validated addresses and supported storage forms.
+- Add policy-driven parsing through `Options` and the explicit `Relax` type,
+  including SMTPUTF8, domain-literal, Unicode-domain, and length policies.
+- Add `clap` support for parsing options and policy values.
+- Add optional storage backends and the associated feature, CI, coverage, and
+  validation-test matrix.

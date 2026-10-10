@@ -13,7 +13,7 @@ maintainer to review the final commit, tag, and registry release settings.
 - [ ] Confirm the crates.io trusted publisher matches this repository, release
   workflow, and intended publishing environment.
 - [ ] Confirm the GitHub `crates-io` environment name and protection rules.
-- [ ] Confirm `main` and release-tag branch protection before the first release.
+- [ ] Confirm `main` and release-tag branch protection before creating the release tag.
 
 ## Verification
 

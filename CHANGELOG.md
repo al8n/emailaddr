@@ -28,6 +28,8 @@ available on crates.io.
   serialize-only.
 - Remove the undocumented implicit Cargo `idna` feature; downstream users
   needing IDNA should select `alloc` or `std` explicitly.
+- The Cargo feature `arbitrary` now implies `alloc`, so invariant-preserving
+  generators are available whenever `arbitrary` is selected.
 
 ## Migration from 0.1.x
 

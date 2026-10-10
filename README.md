@@ -102,6 +102,26 @@ assert_eq!(bytes.as_bytes(), stack.as_bytes());
 # }
 ```
 
+## Parse output
+
+Allocating parses report whether the original storage was retained or the
+address was normalized into [`Buffer`]:
+
+```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
+use emailaddr::{EmailAddr, ParseEmailAddrOutput};
+
+let output = EmailAddr::<&str>::try_from_str("user@测试.中国").unwrap();
+match output {
+    ParseEmailAddrOutput::Original(_) => unreachable!("Unicode domains normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+        assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s");
+    }
+}
+# }
+```
+
 ## Validation Helpers
 
 ```rust
@@ -236,8 +256,8 @@ or SMTP commands; it validates and normalizes address values.
 
 ## License
 
-`emailaddr` is under the terms of both the MIT license and the Apache License
-(Version 2.0).
+`emailaddr` is dual-licensed under your choice of the MIT license or the Apache
+License (Version 2.0).
 
 See [LICENSE-APACHE](LICENSE-APACHE), [LICENSE-MIT](LICENSE-MIT) for details.
 

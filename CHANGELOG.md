@@ -1,5 +1,12 @@
 # UNRELEASED
 
+- Replace the `Either` parse result with the crate-owned
+  `ParseEmailAddrOutput::{Original,Normalized}` enum. Strict parsing uses
+  `StrictParseOutput`; relaxed parsing keeps `RelaxedParseOutput` as an alias.
+  Normalized results carry `EmailAddr<Buffer, P>` and are already validated.
+- Document the crate-owned parse output migration and the dual-license
+  attribution update for the 1.0 API surface.
+
 ## 1.0 readiness
 
 - Remove the zeroize integration because wiping a validated wrapper leaves its

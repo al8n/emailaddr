@@ -591,8 +591,9 @@ impl<S> EmailAddr<S, Relax> {
   /// Parses an email address from bytes with custom parsing options.
   ///
   /// The [`ParseEmailAddrOutput::Original`] value preserves the original
-  /// storage when no normalization was needed. [`ParseEmailAddrOutput::Normalized`]
-  /// contains the normalized stack buffer otherwise.
+  /// storage when the emitted bytes match the input, including canonical
+  /// A-labels and SMTPUTF8 local-parts. [`ParseEmailAddrOutput::Normalized`]
+  /// contains the normalized stack buffer when the emitted bytes differ.
   #[inline]
   pub fn try_from_bytes_with_options(
     input: S,
@@ -616,8 +617,9 @@ impl<S> EmailAddr<S, Relax> {
   /// Parses an email address from a string with custom parsing options.
   ///
   /// The [`ParseEmailAddrOutput::Original`] value preserves the original
-  /// storage when no normalization was needed. [`ParseEmailAddrOutput::Normalized`]
-  /// contains the normalized stack buffer otherwise.
+  /// storage when the emitted bytes match the input, including canonical
+  /// A-labels and SMTPUTF8 local-parts. [`ParseEmailAddrOutput::Normalized`]
+  /// contains the normalized stack buffer when the emitted bytes differ.
   #[inline]
   pub fn try_from_str_with_options(
     input: S,

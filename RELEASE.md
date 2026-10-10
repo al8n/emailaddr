@@ -8,6 +8,7 @@ maintainer to review the final commit, tag, and registry release settings.
 - [ ] Confirm the `1.0.0` version and release notes are finalized.
 - [ ] Review the public API and semver report against the previous release.
 - [ ] Confirm parser, storage, serde, IDNA, and no-alloc contracts are documented.
+- [ ] Confirm the copyright owner and year in `LICENSE-MIT`: Al Liu, 2026.
 - [ ] Confirm no license or API-semantic changes are included accidentally.
 - [ ] Confirm the crates.io trusted publisher matches this repository, release
   workflow, and intended publishing environment.

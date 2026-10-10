@@ -105,7 +105,10 @@ assert_eq!(bytes.as_bytes(), stack.as_bytes());
 ## Parse output
 
 Allocating parses report whether the original storage was retained or the
-address was normalized into [`Buffer`]:
+address was normalized into [`Buffer`]. The parser fully validates IDNA
+A-labels; canonical A-labels whose normalized bytes are unchanged remain
+`Original`, while Unicode domains, Unicode dot separators, and non-canonical
+A-labels are reported as `Normalized`:
 
 ```rust
 # #[cfg(any(feature = "alloc", feature = "std"))]
@@ -119,6 +122,18 @@ match output {
         assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s");
     }
 }
+# }
+```
+
+For example, a canonical A-label keeps its borrowed storage:
+
+```rust
+# #[cfg(any(feature = "alloc", feature = "std"))]
+# {
+use emailaddr::{EmailAddr, ParseEmailAddrOutput};
+
+let output = EmailAddr::<&str>::try_from_str("user@xn--0zwm56d.xn--fiqs8s").unwrap();
+assert!(matches!(output, ParseEmailAddrOutput::Original(_)));
 # }
 ```
 
@@ -211,7 +226,7 @@ minimum_dns_labels = 2
 |---------|-------------|
 | `std` (default) | Standard library support and IDNA domain normalization |
 | `alloc` | Allocation support without `std`, including IDNA domain normalization |
-| `serde` | `serde_core`-backed serialization for addresses and parts; `EmailAddr` and parsing options also support deserialization, while `LocalPart` and `DomainPart` are serialize-only |
+| `serde` | `serde_core`-backed serialization for addresses and parts; strict `EmailAddr` and parsing options also support deserialization, while relaxed `EmailAddr`, `LocalPart`, and `DomainPart` are serialize-only |
 | `clap` | `clap::Args` / `ValueEnum` support for parsing options; CLI flags only, no environment-variable wiring |
 | `bytes` / `bytes_1` | `bytes::Bytes` storage support |
 | `smallvec` / `smallvec_1` | `smallvec::SmallVec` byte storage support |
@@ -221,10 +236,19 @@ minimum_dns_labels = 2
 | `arbitrary` | Invariant-preserving `arbitrary::Arbitrary` impls for owned storage backends |
 | `quickcheck` | Invariant-preserving `quickcheck::Arbitrary` impls for owned storage backends |
 
-Enable `alloc` or `std` for IDNA-normalizing `EmailAddr` deserialization;
+Enable `alloc` or `std` for IDNA-normalizing strict `EmailAddr` deserialization;
 serde-only/no-alloc deserialization accepts structural ASCII forms and rejects
-A-label domains requiring IDNA validation. `LocalPart` and `DomainPart` remain
-serialize-only.
+A-label domains requiring IDNA validation. `EmailAddr<S, Relax>`, `LocalPart`,
+and `DomainPart` remain serialize-only.
+
+### Serde compatibility
+
+Human-readable Serde uses the validated address string and stable policy names
+(`allow`, `forbid`, `ascii`, `idna`, and `raw`). Binary Serde representations
+are not stable wire formats; support is limited to round trips within the
+current crate version. Strict `EmailAddr` values with supported storage and
+`Options` can deserialize; `EmailAddr<S, Relax>`, `LocalPart`, and `DomainPart`
+only serialize.
 
 ## Testing
 

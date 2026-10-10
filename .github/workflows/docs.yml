@@ -1,0 +1,58 @@
+name: Docs and package
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "examples/**"
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "examples/**"
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTDOCFLAGS: --cfg docsrs -Dwarnings
+
+jobs:
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust 1.86.0
+        run: rustup toolchain install 1.86.0 --profile minimal --no-self-update
+      - name: Run doctests
+        run: cargo +1.86.0 test --all-features --doc
+      - name: Check examples
+        run: cargo +1.86.0 check --all-features --examples
+      - name: Build documentation
+        run: cargo +1.86.0 doc --all-features --no-deps
+
+  package:
+    name: package
+    needs: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust 1.86.0
+        run: rustup toolchain install 1.86.0 --profile minimal --no-self-update
+      - name: Package crate
+        run: cargo +1.86.0 package --all-features

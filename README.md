@@ -45,7 +45,7 @@ emailaddr = "0.1"
 
 ## Quick Start
 
-```rust,ignore
+```rust
 use emailaddr::EmailAddr;
 
 let addr: EmailAddr<String> = "user.name@example.com".parse().unwrap();
@@ -64,7 +64,7 @@ assert_eq!(smtp_utf8.local_part().as_inner(), &"用户");
 
 ## Borrowed DSTs
 
-```rust,ignore
+```rust
 use emailaddr::{DomainPart, EmailAddr, LocalPart};
 
 let addr: &EmailAddr<str> = EmailAddr::try_from_ascii_str("user@example.com").unwrap();
@@ -83,7 +83,7 @@ assert_eq!(domain.as_bytes().as_inner(), b"example.com");
 
 ## Storage
 
-```rust,ignore
+```rust
 use emailaddr::{Buffer, EmailAddr};
 use std::sync::Arc;
 
@@ -98,7 +98,7 @@ assert_eq!(bytes.as_bytes(), stack.as_bytes());
 
 ## Validation Helpers
 
-```rust,ignore
+```rust
 use emailaddr::{
     verify_ascii_domain_part,
     verify_ascii_email_addr,
@@ -124,7 +124,7 @@ explicit non-standard relaxations without changing the default constructors.
 `parse_with_options` is available on `EmailAddr<S, Relax>`, so relaxed parsing
 is visible in the type while ordinary `EmailAddr<S>` remains strict.
 
-```rust,ignore
+```rust
 use emailaddr::{
     Buffer,
     DomainOptions,
@@ -196,6 +196,15 @@ Enable `alloc` or `std` for IDNA-normalizing `EmailAddr` deserialization;
 serde-only/no-alloc deserialization accepts structural ASCII forms and rejects
 A-label domains requiring IDNA validation. `LocalPart` and `DomainPart` remain
 serialize-only.
+
+## Testing
+
+The parser property suite runs 5,000 QuickCheck cases by default. To reproduce
+the extended review run, use:
+
+```text
+QUICKCHECK_TESTS=50000 cargo test --features quickcheck --test parser_properties
+```
 
 ## RFC Coverage
 

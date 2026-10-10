@@ -7,8 +7,8 @@ use emailaddr::{
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use emailaddr::{
-  MAX_DOMAIN_PART_LENGTH, MAX_EMAIL_ADDR_LENGTH, ParseEmailAddrError, verify_ascii_email_addr,
-  verify_email_addr,
+  MAX_DOMAIN_PART_LENGTH, MAX_EMAIL_ADDR_LENGTH, ParseEmailAddrError, ParseEmailAddrOutput,
+  RelaxedParseOutput, StrictParseOutput, verify_ascii_email_addr, verify_email_addr,
 };
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -732,6 +732,93 @@ fn supports_storage_backends() {
   assert_eq!(rc.as_str(), boxed.as_str());
   assert_eq!(boxed.as_str(), cow.as_str());
   assert_eq!(bytes.as_bytes(), stack.as_bytes());
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[test]
+fn parse_output_enum_preserves_exact_variants_and_storage() {
+  let original: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str("user@example.com").unwrap();
+  assert!(matches!(original, ParseEmailAddrOutput::Original(_)));
+
+  let normalized: StrictParseOutput<&str> =
+    EmailAddr::<&str>::try_from_str("user@测试.中国").unwrap();
+  match normalized {
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode domain should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+      assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s")
+    }
+  }
+
+  let bytes_original: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes(b"user@example.com").unwrap();
+  assert!(matches!(bytes_original, ParseEmailAddrOutput::Original(_)));
+
+  let bytes_normalized: StrictParseOutput<&[u8]> =
+    EmailAddr::<&[u8]>::try_from_bytes("user@测试.中国".as_bytes()).unwrap();
+  assert!(matches!(
+    bytes_normalized,
+    ParseEmailAddrOutput::Normalized(_)
+  ));
+
+  let relaxed_original: RelaxedParseOutput<String> =
+    EmailAddr::<String, Relax>::try_from_str_with_options(
+      String::from("user@example.com"),
+      Options::new(),
+    )
+    .unwrap();
+  assert!(matches!(
+    relaxed_original,
+    ParseEmailAddrOutput::Original(_)
+  ));
+
+  let relaxed_normalized: RelaxedParseOutput<String> =
+    EmailAddr::<String, Relax>::try_from_str_with_options(
+      String::from("user@测试.中国"),
+      Options::new(),
+    )
+    .unwrap();
+  assert!(matches!(
+    relaxed_normalized,
+    ParseEmailAddrOutput::Normalized(_)
+  ));
+
+  let owned = String::from("user@example.com");
+  let pointer = owned.as_ptr();
+  match EmailAddr::<String>::try_from_str(owned).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_inner().as_ptr(), pointer),
+    ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
+  }
+
+  let borrowed: Cow<'static, str> = Cow::Borrowed("user@example.com");
+  match EmailAddr::<Cow<'static, str>>::try_from_str(borrowed).unwrap() {
+    ParseEmailAddrOutput::Original(addr) => {
+      assert!(matches!(
+        addr.into_inner(),
+        Cow::Borrowed("user@example.com")
+      ))
+    }
+    ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
+  }
+
+  #[cfg(feature = "bytes_1")]
+  {
+    let output: StrictParseOutput<bytes_1::Bytes> = EmailAddr::<bytes_1::Bytes>::try_from_bytes(
+      bytes_1::Bytes::copy_from_slice(b"user@example.com"),
+    )
+    .unwrap();
+    assert!(matches!(output, ParseEmailAddrOutput::Original(_)));
+  }
+
+  #[cfg(feature = "smallvec_1")]
+  {
+    let output: StrictParseOutput<smallvec_1::SmallVec<[u8; 32]>> =
+      EmailAddr::<smallvec_1::SmallVec<[u8; 32]>>::try_from_bytes(
+        smallvec_1::SmallVec::from_slice(b"user@example.com"),
+      )
+      .unwrap();
+    assert!(matches!(output, ParseEmailAddrOutput::Original(_)));
+  }
 }
 
 #[cfg(any(

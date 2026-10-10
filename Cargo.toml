@@ -37,7 +37,6 @@ arbitrary = [
 quickcheck = ["dep:quickcheck", "alloc"]
 
 [dependencies]
-either = { version = "1", default-features = false }
 idna = { version = "1", default-features = false, optional = true }
 serde_core = { version = "1", default-features = false, features = ["result"], optional = true }
 thiserror = { version = "2", default-features = false }

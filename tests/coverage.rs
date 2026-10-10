@@ -9,7 +9,7 @@ use emailaddr::{
 };
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-use emailaddr::verify_email_addr;
+use emailaddr::{ParseEmailAddrOutput, verify_email_addr};
 
 #[test]
 fn covers_options_and_error_accessors() {
@@ -280,8 +280,12 @@ fn covers_idna_and_relaxed_domain_branches() {
   assert!(EmailAddr::<String>::try_from("user@.测试").is_err());
 
   match EmailAddr::<&[u8]>::try_from_bytes(b"user@xn--0zwm56d.xn--fiqs8s".as_slice()).unwrap() {
-    either::Either::Left(_) => panic!("ASCII A-label should be normalized before acceptance"),
-    either::Either::Right(buf) => assert_eq!(buf.as_str(), "user@xn--0zwm56d.xn--fiqs8s"),
+    ParseEmailAddrOutput::Original(_) => {
+      panic!("ASCII A-label should be normalized before acceptance")
+    }
+    ParseEmailAddrOutput::Normalized(addr) => {
+      assert_eq!(addr.as_str(), "user@xn--0zwm56d.xn--fiqs8s")
+    }
   }
 
   let non_standard = Options::new()
@@ -503,8 +507,8 @@ fn covers_alloc_storage_conversions() {
   )
   .unwrap()
   {
-    either::Either::Left(addr) => assert_eq!(addr.as_str(), "user@example.com"),
-    either::Either::Right(_) => panic!("ASCII address should preserve storage"),
+    ParseEmailAddrOutput::Original(addr) => assert_eq!(addr.as_str(), "user@example.com"),
+    ParseEmailAddrOutput::Normalized(_) => panic!("ASCII address should preserve storage"),
   }
   match EmailAddr::<Vec<u8>, Relax>::try_from_bytes_with_options(
     "user@测试.中国".as_bytes().to_vec(),
@@ -512,8 +516,10 @@ fn covers_alloc_storage_conversions() {
   )
   .unwrap()
   {
-    either::Either::Left(_) => panic!("Unicode domain should normalize"),
-    either::Either::Right(addr) => assert_eq!(addr.domain_part(), "xn--0zwm56d.xn--fiqs8s"),
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode domain should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+      assert_eq!(addr.domain_part(), "xn--0zwm56d.xn--fiqs8s")
+    }
   }
   match EmailAddr::<String, Relax>::try_from_str_with_options(
     String::from("user@测试.中国"),
@@ -521,8 +527,10 @@ fn covers_alloc_storage_conversions() {
   )
   .unwrap()
   {
-    either::Either::Left(_) => panic!("Unicode domain should normalize"),
-    either::Either::Right(addr) => assert_eq!(addr.domain_part(), "xn--0zwm56d.xn--fiqs8s"),
+    ParseEmailAddrOutput::Original(_) => panic!("Unicode domain should normalize"),
+    ParseEmailAddrOutput::Normalized(addr) => {
+      assert_eq!(addr.domain_part(), "xn--0zwm56d.xn--fiqs8s")
+    }
   }
 }
 

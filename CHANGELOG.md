@@ -1,6 +1,7 @@
 # UNRELEASED
 
-No changes since `1.0.0-rc.1`.
+- Use maintained `serde_test2` readable/compact token coverage for the
+  parsing-options Serde contracts and remove the prior advisory exception.
 
 # 1.0.0-rc.1
 

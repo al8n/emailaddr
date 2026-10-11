@@ -1,6 +1,7 @@
 # UNRELEASED
 
-No changes since `1.0.0-rc.1`.
+- Use maintained `serde_test2` readable/compact token coverage for the
+  parsing-options Serde contracts and remove the prior advisory exception.
 
 # 1.0.0-rc.1
 
@@ -26,8 +27,6 @@ available on crates.io.
   names are stable, binary representations are non-stable and supported only
   for current-version round trips, and relaxed addresses plus parts are
   serialize-only.
-- Use maintained `serde_test2` readable/compact token coverage for the
-  parsing-options Serde contracts and remove the prior advisory exception.
 - Remove the undocumented implicit Cargo `idna` feature; downstream users
   needing IDNA should select `alloc` or `std` explicitly.
 - The Cargo feature `arbitrary` now implies `alloc`, so invariant-preserving

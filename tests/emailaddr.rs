@@ -1124,6 +1124,7 @@ fn supports_serde_core_for_options() {
     },
     ser::{Error as SerErrorTrait, Impossible, SerializeStruct},
   };
+  use serde_test2::{Configure as _, Token as SerdeToken, assert_tokens};
   use std::{string::String, vec::Vec};
 
   #[derive(Debug, PartialEq, Eq)]
@@ -1657,25 +1658,161 @@ fn supports_serde_core_for_options() {
     }
   ));
 
-  let options_binary = bincode::serialize(&options).unwrap();
-  assert_eq!(
-    bincode::deserialize::<Options>(&options_binary).unwrap(),
-    options
+  assert_tokens(
+    &options.readable(),
+    &[
+      SerdeToken::Struct {
+        name: "Options",
+        len: 3,
+      },
+      SerdeToken::Str("local"),
+      SerdeToken::Struct {
+        name: "LocalOptions",
+        len: 1,
+      },
+      SerdeToken::Str("smtp_utf8"),
+      SerdeToken::Str("forbid"),
+      SerdeToken::StructEnd,
+      SerdeToken::Str("domain"),
+      SerdeToken::Struct {
+        name: "DomainOptions",
+        len: 3,
+      },
+      SerdeToken::Str("minimum_dns_labels"),
+      SerdeToken::U64(2),
+      SerdeToken::Str("literals"),
+      SerdeToken::Str("allow"),
+      SerdeToken::Str("unicode"),
+      SerdeToken::Str("raw"),
+      SerdeToken::StructEnd,
+      SerdeToken::Str("limits"),
+      SerdeToken::Struct {
+        name: "Limits",
+        len: 1,
+      },
+      SerdeToken::Str("max_local_part_len"),
+      SerdeToken::U64(128),
+      SerdeToken::StructEnd,
+      SerdeToken::StructEnd,
+    ],
   );
-  let local_binary = bincode::serialize(&options.local()).unwrap();
-  assert_eq!(
-    bincode::deserialize::<LocalOptions>(&local_binary).unwrap(),
-    options.local()
+  assert_tokens(
+    &options.compact(),
+    &[
+      SerdeToken::Struct {
+        name: "Options",
+        len: 3,
+      },
+      SerdeToken::Str("local"),
+      SerdeToken::Struct {
+        name: "LocalOptions",
+        len: 1,
+      },
+      SerdeToken::Str("smtp_utf8"),
+      SerdeToken::U8(1),
+      SerdeToken::StructEnd,
+      SerdeToken::Str("domain"),
+      SerdeToken::Struct {
+        name: "DomainOptions",
+        len: 3,
+      },
+      SerdeToken::Str("minimum_dns_labels"),
+      SerdeToken::U64(2),
+      SerdeToken::Str("literals"),
+      SerdeToken::U8(0),
+      SerdeToken::Str("unicode"),
+      SerdeToken::U8(2),
+      SerdeToken::StructEnd,
+      SerdeToken::Str("limits"),
+      SerdeToken::Struct {
+        name: "Limits",
+        len: 1,
+      },
+      SerdeToken::Str("max_local_part_len"),
+      SerdeToken::U64(128),
+      SerdeToken::StructEnd,
+      SerdeToken::StructEnd,
+    ],
   );
-  let domain_binary = bincode::serialize(&options.domain()).unwrap();
-  assert_eq!(
-    bincode::deserialize::<DomainOptions>(&domain_binary).unwrap(),
-    options.domain()
+  assert_tokens(
+    &options.local().readable(),
+    &[
+      SerdeToken::Struct {
+        name: "LocalOptions",
+        len: 1,
+      },
+      SerdeToken::Str("smtp_utf8"),
+      SerdeToken::Str("forbid"),
+      SerdeToken::StructEnd,
+    ],
   );
-  let limits_binary = bincode::serialize(&options.limits()).unwrap();
-  assert_eq!(
-    bincode::deserialize::<Limits>(&limits_binary).unwrap(),
-    options.limits()
+  assert_tokens(
+    &options.local().compact(),
+    &[
+      SerdeToken::Struct {
+        name: "LocalOptions",
+        len: 1,
+      },
+      SerdeToken::Str("smtp_utf8"),
+      SerdeToken::U8(1),
+      SerdeToken::StructEnd,
+    ],
+  );
+  assert_tokens(
+    &options.domain().readable(),
+    &[
+      SerdeToken::Struct {
+        name: "DomainOptions",
+        len: 3,
+      },
+      SerdeToken::Str("minimum_dns_labels"),
+      SerdeToken::U64(2),
+      SerdeToken::Str("literals"),
+      SerdeToken::Str("allow"),
+      SerdeToken::Str("unicode"),
+      SerdeToken::Str("raw"),
+      SerdeToken::StructEnd,
+    ],
+  );
+  assert_tokens(
+    &options.domain().compact(),
+    &[
+      SerdeToken::Struct {
+        name: "DomainOptions",
+        len: 3,
+      },
+      SerdeToken::Str("minimum_dns_labels"),
+      SerdeToken::U64(2),
+      SerdeToken::Str("literals"),
+      SerdeToken::U8(0),
+      SerdeToken::Str("unicode"),
+      SerdeToken::U8(2),
+      SerdeToken::StructEnd,
+    ],
+  );
+  assert_tokens(
+    &options.limits().readable(),
+    &[
+      SerdeToken::Struct {
+        name: "Limits",
+        len: 1,
+      },
+      SerdeToken::Str("max_local_part_len"),
+      SerdeToken::U64(128),
+      SerdeToken::StructEnd,
+    ],
+  );
+  assert_tokens(
+    &options.limits().compact(),
+    &[
+      SerdeToken::Struct {
+        name: "Limits",
+        len: 1,
+      },
+      SerdeToken::Str("max_local_part_len"),
+      SerdeToken::U64(128),
+      SerdeToken::StructEnd,
+    ],
   );
   let sequence_options = Options::deserialize(BinaryValue::Seq(vec![
     BinaryValue::Seq(vec![BinaryValue::U8(1)]),

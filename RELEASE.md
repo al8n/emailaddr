@@ -7,7 +7,11 @@ maintainer to review the final commit, tag, and registry release settings.
 
 - [ ] Confirm the package version and release notes are finalized.
 - [ ] Review the public API and semver report against the previous release.
+- [ ] For promotions, compare semver against the latest stable release and the
+  exact release-candidate tag being promoted.
 - [ ] Confirm parser, storage, serde, IDNA, and no-alloc contracts are documented.
+- [ ] Confirm the release candidate has completed its soak period and all
+  release-blocking issues are closed or explicitly accepted.
 - [ ] Confirm the copyright owner and year in `LICENSE-MIT`: Al Liu, 2026.
 - [ ] Confirm no license or API-semantic changes are included accidentally.
 - [ ] Confirm the crates.io trusted publisher matches this repository, release
@@ -27,8 +31,11 @@ maintainer to review the final commit, tag, and registry release settings.
 ## Release and follow-up
 
 - [ ] Review the changelog, README, docs, and package metadata one final time.
-- [ ] Run `workflow_dispatch` with `tag=v<package-version>` in dry-run mode and
-  confirm the publish and GitHub release jobs are skipped.
+- [ ] Before creating the release tag, verify that the target crate version,
+  Git tag, and GitHub Release are absent.
+- [ ] Run `workflow_dispatch` with `tag=v<package-version>` to validate the
+  pipeline; confirm it does not enter the crates-io environment, request OIDC
+  credentials, publish, or create a GitHub release.
 - [ ] Create the release tag only from the reviewed commit.
 - [ ] Publish through the approved registry/release process.
 - [ ] Verify the published checksum and OIDC provenance attestation.

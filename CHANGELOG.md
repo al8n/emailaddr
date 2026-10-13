@@ -1,12 +1,22 @@
 # UNRELEASED
 
+No changes since `1.0.0`.
+
+# 1.0.0 - 2026-10-13
+
+The stable production code and public API are unchanged from `1.0.0-rc.1`.
+
+## Changes since 1.0.0-rc.1
+
 - Use maintained `serde_test2` readable/compact token coverage for the
   parsing-options Serde contracts and remove the prior advisory exception.
 
-# 1.0.0-rc.1
+The complete Highlights and Migration from 0.1.x sections are retained under
+`1.0.0-rc.1` below.
 
-This is an unpublished release candidate for the 1.0 API. It is not yet
-available on crates.io.
+# 1.0.0-rc.1 - 2026-10-11
+
+First published release candidate for the 1.0 API.
 
 ## Highlights
 
